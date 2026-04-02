@@ -66,7 +66,7 @@ function voterUI() {
       document.querySelectorAll('button').forEach(b=>b.disabled=true);
       document.getElementById('error').style.display='none';
       try{
-        const res=await fetch('vote',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({option,token:getToken()})});
+        const res=await fetch('/voterapp/vote',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({option,token:getToken()})});
         if(res.ok){
           document.getElementById('vote-screen').style.display='none';
           document.getElementById('voted-option').textContent='Option '+option;
