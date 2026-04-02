@@ -1,3 +1,6 @@
+# yaml
+cluster-issuer.yaml
+
 # Logs
 logs
 *.log
