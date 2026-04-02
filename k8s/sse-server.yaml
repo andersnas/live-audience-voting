@@ -1,0 +1,59 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sse-server
+  labels:
+    app: sse-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sse-server
+  template:
+    metadata:
+      labels:
+        app: sse-server
+    spec:
+      containers:
+        - name: sse-server
+          image: YOUR_REGISTRY/sse-server:latest
+          ports:
+            - containerPort: 3000
+          env:
+            - name: PORT
+              value: "3000"
+            - name: REDIS_HOST
+              value: "redis-public"
+            - name: REDIS_PORT
+              value: "6379"
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: redis-secret
+                  key: password
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "128Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sse-server
+spec:
+  type: LoadBalancer
+  selector:
+    app: sse-server
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 3000

@@ -1,0 +1,19 @@
+{
+  "name": "sse-server",
+  "version": "0.1.0",
+  "description": "SSE server — subscribes to Redis and streams vote events to the presenter display",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "ts-node src/index.ts"
+  },
+  "dependencies": {
+    "ioredis": "^5.3.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.4.0"
+  }
+}
