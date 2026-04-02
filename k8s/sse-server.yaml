@@ -16,14 +16,14 @@ spec:
     spec:
       containers:
         - name: sse-server
-          image: YOUR_REGISTRY/sse-server:latest
+          image: andersnas/sse-server:latest
           ports:
             - containerPort: 3000
           env:
             - name: PORT
               value: "3000"
             - name: REDIS_HOST
-              value: "redis-public"
+              value: "redis-master"
             - name: REDIS_PORT
               value: "6379"
             - name: REDIS_PASSWORD
@@ -37,6 +37,12 @@ spec:
               port: 3000
             initialDelaySeconds: 5
             periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 3
+            periodSeconds: 5
           resources:
             requests:
               cpu: "50m"
@@ -50,7 +56,7 @@ kind: Service
 metadata:
   name: sse-server
 spec:
-  type: LoadBalancer
+  type: ClusterIP
   selector:
     app: sse-server
   ports:
