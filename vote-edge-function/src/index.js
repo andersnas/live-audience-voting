@@ -2,7 +2,7 @@ import { AutoRouter } from 'itty-router';
 
 const router = AutoRouter();
 
-const SSE_SERVER_URL = "https://webservices.code4media.com/vote";
+const SSE_SERVER_URL = "https://webservices.code4media.com/voterapp/vote";
 const VALID_OPTIONS = ["A", "B", "C", "D"];
 
 // Generate a dedup token from request headers
