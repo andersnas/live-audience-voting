@@ -2,58 +2,120 @@
 
 ## Overview
 
-This system lets a live audience vote using their phones and displays results in real time on a presenter screen — all on Akamai / Linode infrastructure.
+Real-time audience voting system built entirely on Akamai / Linode infrastructure.
+Audience members vote on their phones; results appear live on a presenter display.
 
 ## Data flow
 
-1. Audience scans QR code, opens voter UI (served from Akamai edge cache)
-2. They tap an option — browser POSTs to the Akamai EdgeWorker endpoint
-3. EdgeWorker validates, checks dedup in Redis (SET NX), PUBLISHes vote event
-4. EdgeWorker returns 200 immediately (fire and forget)
-5. SSE server pod in LKE is subscribed to Redis — streams events to open EventSource connections
-6. Presenter display tab receives events, increments local tally, redraws bar chart
+1. Audience member scans a QR code, opens the voter UI (served from Akamai edge cache)
+2. They tap a vote option — browser POSTs to the Akamai Function (Fermyon/Spin) endpoint
+3. Akamai Function validates the payload, makes an HTTPS POST to the SSE server `/vote` endpoint
+4. SSE server checks deduplication in Redis (SET NX), publishes vote event (PUBLISH)
+5. SSE server fans out the event to all open SSE connections
+6. Presenter display browser tab receives the event, increments local tally, redraws bar chart
+
+## Why the edge function talks to the SSE server (not Redis directly)
+
+Akamai Functions (Fermyon/Spin) can only make outbound HTTPS requests — no raw TCP.
+Redis speaks TCP on port 6379, unreachable from the edge runtime.
+The SSE server acts as the HTTPS gateway in front of Redis, handling both:
+- POST /vote — dedup + publish
+- GET /    — SSE stream to presenter display
 
 ## Components
 
-### Akamai EdgeWorkers (Fermyon / Wasm)
+### Akamai Functions (Fermyon / Spin / Wasm)
 - Serves static voter HTML/JS from edge cache
-- Handles POST /vote
-- Validates option value and session token
-- Deduplicates: SET NX voter:{fingerprint} EX 3600
-- Publishes: PUBLISH votes {option}
+- Handles POST /vote from voter phones
+- Validates option and session token
+- Makes HTTPS POST to SSE server /vote endpoint
 - Returns 200 immediately
 
-### Redis (LKE pod)
-- Single pod, Bitnami Helm chart, emptyDir (no PersistentVolume)
-- SET NX voter:{id} 1 EX 3600 — dedup
-- PUBLISH votes {option} — fan out to SSE server
-- Exposed via LoadBalancer, locked to Akamai egress IPs via firewall
+### SSE server (LKE)
+- Node.js / TypeScript
+- POST /vote — dedup via Redis SET NX, publish via Redis PUBLISH
+- GET /      — SSE stream, fans out Redis events to all connected clients
+- GET /health — liveness/readiness probe
+- Deployed as Kubernetes Deployment + ClusterIP Service
+- Exposed via nginx ingress on port 443 with Let's Encrypt TLS
+- Live at: https://webservices.code4media.com
 
-### SSE server (LKE pod)
-- Node.js ~50 lines
-- SUBSCRIBEs to Redis votes channel
-- Streams data: {event}\n\n to all open HTTP connections
-- Exposed via LoadBalancer — used by presenter display
+### Redis (LKE)
+- Single pod, Bitnami Helm chart, emptyDir (no PersistentVolume)
+- Session-scoped data only — pod restart between events is acceptable
+- ClusterIP service only — never exposed outside the cluster
+- SET NX voter:{token} 1 EX 3600 — deduplication
+- PUBLISH votes {option}          — fan out to SSE server
 
 ### Presenter display
 - Single HTML file, no framework
-- EventSource to SSE server URL
-- Tallies votes locally, animates Chart.js bar chart
+- EventSource connects to https://webservices.code4media.com/
+- Tallies vote events locally, animates Chart.js bar chart
 - Fullscreen on dedicated display
 
-## Design decisions
+## Infrastructure
 
-| Decision | Rationale |
-|---|---|
-| No Cloudflare | Reliability; everything on Akamai/Linode |
-| Redis pub/sub over Kafka | Simpler for single-room live event |
-| No Redis persistence | Session-scoped data; emptyDir is fine |
-| SSE over WebSockets | Display is read-only; SSE auto-reconnects |
-| Tally in browser | No server aggregation; replays on reconnect |
+| Component        | Platform                  | Notes                          |
+|------------------|---------------------------|--------------------------------|
+| Akamai Functions | Akamai edge (Fermyon/Spin)| Wasm runtime                   |
+| SSE server       | Linode LKE                | Deployment + ClusterIP service |
+| Redis            | Linode LKE                | Bitnami Helm, no persistence   |
+| Ingress          | Linode LKE                | nginx ingress controller       |
+| TLS              | Let's Encrypt / cert-manager | DNS-01 via Linode API       |
+| DNS              | Linode DNS Manager        | code4media.com zone            |
 
 ## Networking
-
 ```
-Internet → Akamai EdgeWorker → Redis LoadBalancer (Akamai firewall locked)
-Internet → SSE server LoadBalancer → Presenter browser tab
+Voter phone
+  └── HTTPS → Akamai Function (Fermyon/Spin)
+                └── HTTPS POST /vote → webservices.code4media.com (Akamai IPACL)
+                                          └── nginx ingress (443)
+                                                └── SSE server pod
+                                                      └── Redis (ClusterIP only)
+
+Presenter display
+  └── HTTPS GET / (EventSource) → webservices.code4media.com
+                                    └── nginx ingress → SSE server pod
+```
+
+## Security
+
+- LKE cluster only accepts traffic on 443 from Akamai edge IPs (Akamai IPACL)
+- Redis is ClusterIP only — no external exposure
+- TLS auto-renewed by cert-manager (DNS-01, Linode webhook)
+- Voter dedup via SET NX with session token — silent 200 on duplicate
+- No secrets committed to git — created via kubectl directly
+
+## Key design decisions
+
+| Decision                        | Rationale                                              |
+|---------------------------------|--------------------------------------------------------|
+| No Cloudflare                   | Reliability; everything on Akamai/Linode               |
+| SSE server as Redis gateway     | Akamai Functions can only make HTTPS calls, not TCP    |
+| Redis pub/sub over Kafka        | Simpler for single-room event; no replay needed        |
+| No Redis persistence            | Session-scoped data; emptyDir is fine                  |
+| SSE over WebSockets             | Display is read-only; SSE simpler and auto-reconnects  |
+| Tally in browser                | No server aggregation; replays from stream on reconnect|
+| DNS-01 cert validation          | HTTP-01 not viable — cluster only accepts Akamai IPs   |
+
+## Endpoints
+
+| Endpoint                                     | Method | Description                        |
+|----------------------------------------------|--------|------------------------------------|
+| https://webservices.code4media.com/          | GET    | SSE stream (presenter display)     |
+| https://webservices.code4media.com/vote      | POST   | Submit vote (called by Akamai Fn)  |
+| https://webservices.code4media.com/health    | GET    | Health check (K8s probes)          |
+
+## Secrets — never committed to git
+
+Create directly via kubectl:
+```bash
+# Redis password
+kubectl create secret generic redis-secret \
+  --from-literal=password=YOUR_REDIS_PASSWORD
+
+# Linode API token (cert-manager DNS-01 validation)
+kubectl create secret generic linode-credentials \
+  --namespace cert-manager \
+  --from-literal=token=YOUR_LINODE_API_TOKEN
 ```

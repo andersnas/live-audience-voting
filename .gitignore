@@ -1,5 +1,7 @@
 # yaml
-cluster-issuer.yaml
+k8s/cluster-issuer.yaml
+k8s/redis-secret.yaml
+k8s/sse-server.yaml
 
 # Logs
 logs
