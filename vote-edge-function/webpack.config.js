@@ -14,6 +14,14 @@ const config = async () => {
         resolve: {
             extensions: ['.js'],
         },
+        module: {
+            rules: [
+                {
+                    test: /\.html$/,
+                    use: 'raw-loader'
+                }
+            ]
+        },
         output: {
             path: path.resolve(process.cwd(), './build'),
             filename: 'bundle.js',

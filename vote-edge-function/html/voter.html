@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0"/>
+  <title>Vote</title>
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#0f0f0f;color:#fff;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:2rem 1.5rem}
+    h1{font-size:1.6rem;font-weight:600;text-align:center;margin-bottom:.5rem}
+    #question{font-size:1.1rem;color:#aaa;text-align:center;margin-bottom:2.5rem}
+    .options{display:flex;flex-direction:column;gap:1rem;width:100%;max-width:360px}
+    button{padding:1.1rem;font-size:1.1rem;font-weight:600;border:none;border-radius:12px;cursor:pointer;color:#fff;transition:opacity .15s,transform .1s}
+    button:active{transform:scale(.97);opacity:.85}
+    button[data-option="A"]{background:#5b8dee}
+    button[data-option="B"]{background:#e8593c}
+    button[data-option="C"]{background:#1d9e75}
+    button[data-option="D"]{background:#ef9f27}
+    button:disabled{opacity:.4;cursor:not-allowed}
+    #confirmation{display:none;text-align:center;padding:2rem}
+    #confirmation .check{font-size:4rem;margin-bottom:1rem}
+    #confirmation p{font-size:1.2rem;color:#aaa}
+    #confirmation strong{color:#fff;font-size:1.4rem;display:block;margin-top:.5rem}
+    #error{color:#e24b4a;font-size:.9rem;text-align:center;margin-top:1rem;display:none}
+  </style>
+</head>
+<body>
+  <div id="vote-screen">
+    <h1>Live Vote</h1>
+    <div id="question">Select your answer</div>
+    <div class="options">
+      <button data-option="A" onclick="vote('A')">Option A</button>
+      <button data-option="B" onclick="vote('B')">Option B</button>
+      <button data-option="C" onclick="vote('C')">Option C</button>
+      <button data-option="D" onclick="vote('D')">Option D</button>
+    </div>
+    <div id="error">Something went wrong. Please try again.</div>
+  </div>
+  <div id="confirmation">
+    <div class="check">✓</div>
+    <p>You voted for</p>
+    <strong id="voted-option"></strong>
+  </div>
+  <script>
+    const BASE = '__BASE__';
+    function getToken(){
+      let t = sessionStorage.getItem('vt');
+      if (!t) { t = Math.random().toString(36).substring(2) + Date.now().toString(36); sessionStorage.setItem('vt', t); }
+      return t;
+    }
+    async function vote(option) {
+      document.querySelectorAll('button').forEach(b => b.disabled = true);
+      document.getElementById('error').style.display = 'none';
+      try {
+        const res = await fetch(BASE + '/api/vote', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ option, token: getToken() })
+        });
+        if (res.ok) {
+          document.getElementById('vote-screen').style.display = 'none';
+          document.getElementById('voted-option').textContent = 'Option ' + option;
+          document.getElementById('confirmation').style.display = 'block';
+        } else { throw new Error(); }
+      } catch {
+        document.getElementById('error').style.display = 'block';
+        document.querySelectorAll('button').forEach(b => b.disabled = false);
+      }
+    }
+  </script>
+</body>
+</html>
