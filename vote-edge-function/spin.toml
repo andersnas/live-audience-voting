@@ -2,20 +2,18 @@ spin_manifest_version = 2
 
 [application]
 authors = ["Anders Näsman <anasman@akamai.com>"]
-description = "Vote handler and voter UI edge function"
+description = "Voter UI, admin UI and vote handler edge function"
 name = "vote-edge-function"
 version = "0.1.0"
 
-# Single component handles all routes
 [[trigger.http]]
-route = "/voterapp/..."
+route = "/..."
 component = "vote-edge-function"
 
 [component.vote-edge-function]
 source = "dist/vote-edge-function.wasm"
 exclude_files = ["**/node_modules"]
 allowed_outbound_hosts = ["https://services.code4media.com"]
-files = [{ source = "static", destination = "/static" }]
 
 [component.vote-edge-function.build]
 command = "npm install && npm run build"

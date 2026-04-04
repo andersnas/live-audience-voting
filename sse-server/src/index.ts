@@ -9,14 +9,12 @@ const VOTES_CHANNEL = "votes";
 const VOTER_KEY_PREFIX = "voter:";
 const SESSION_TTL = parseInt(process.env.SESSION_TTL ?? "3600");
 const VALID_OPTIONS = ["A", "B", "C", "D"];
-const BASE = "/voterapp";
+const BASE = "/voterapp/api";
 
 const publisher = new Redis({ host: REDIS_HOST, port: REDIS_PORT, password: REDIS_PASSWORD });
 const subscriber = new Redis({ host: REDIS_HOST, port: REDIS_PORT, password: REDIS_PASSWORD });
 
 const clients = new Set<http.ServerResponse>();
-
-// In-memory vote totals
 const totals: Record<string, number> = { A: 0, B: 0, C: 0, D: 0 };
 
 subscriber.subscribe(VOTES_CHANNEL, (err) => {
@@ -27,9 +25,7 @@ subscriber.subscribe(VOTES_CHANNEL, (err) => {
 subscriber.on("message", (_channel: string, message: string) => {
   try {
     const event = JSON.parse(message);
-    if (event.option && totals.hasOwnProperty(event.option)) {
-      totals[event.option]++;
-    }
+    if (event.option && totals.hasOwnProperty(event.option)) totals[event.option]++;
   } catch {}
   const data = `data: ${message}\n\n`;
   for (const client of clients) client.write(data);
@@ -42,7 +38,7 @@ const server = http.createServer(async (req, res) => {
   const url = req.url ?? "/";
 
   res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
   if (req.method === "OPTIONS") { res.writeHead(204); res.end(); return; }
@@ -53,36 +49,14 @@ const server = http.createServer(async (req, res) => {
     res.end("ok"); return;
   }
 
-  // Vote totals — for admin UI polling
+  // Totals
   if (url === `${BASE}/totals` && req.method === "GET") {
     res.writeHead(200, { "content-type": "application/json" });
     res.end(JSON.stringify({ totals, total: Object.values(totals).reduce((a, b) => a + b, 0) }));
     return;
   }
 
-  // Clear all voter tokens and reset totals
-  if (url === `${BASE}/admin/clear` && req.method === "POST") {
-    try {
-      // Delete all voter dedup keys
-      const keys = await publisher.keys(`${VOTER_KEY_PREFIX}*`);
-      if (keys.length > 0) await publisher.del(...keys);
-      // Reset in-memory totals
-      totals.A = 0; totals.B = 0; totals.C = 0; totals.D = 0;
-      // Broadcast reset event to all SSE clients
-      const data = `data: ${JSON.stringify({ reset: true, ts: Date.now() })}\n\n`;
-      for (const client of clients) client.write(data);
-      console.log(`Cleared ${keys.length} voter tokens and reset totals`);
-      res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify({ ok: true, cleared: keys.length }));
-    } catch (err) {
-      console.error("Clear error:", err);
-      res.writeHead(500, { "content-type": "application/json" });
-      res.end(JSON.stringify({ error: "Failed to clear" }));
-    }
-    return;
-  }
-
-  // SSE stream — presenter display
+  // SSE stream
   if (url === `${BASE}/events` && req.method === "GET") {
     res.writeHead(200, {
       "content-type": "text/event-stream",
@@ -90,7 +64,6 @@ const server = http.createServer(async (req, res) => {
       connection: "keep-alive",
     });
     res.write(": connected\n\n");
-    // Send current totals immediately on connect
     res.write(`data: ${JSON.stringify({ totals, ts: Date.now() })}\n\n`);
     clients.add(res);
     console.log(`SSE client connected. Total: ${clients.size}`);
@@ -101,7 +74,26 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // Vote endpoint
+  // Clear all voter tokens
+  if (url === `${BASE}/clear` && req.method === "POST") {
+    try {
+      const keys = await publisher.keys(`${VOTER_KEY_PREFIX}*`);
+      if (keys.length > 0) await publisher.del(...keys);
+      totals.A = 0; totals.B = 0; totals.C = 0; totals.D = 0;
+      const data = `data: ${JSON.stringify({ reset: true, ts: Date.now() })}\n\n`;
+      for (const client of clients) client.write(data);
+      console.log(`Cleared ${keys.length} voter tokens`);
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ ok: true, cleared: keys.length }));
+    } catch (err) {
+      console.error("Clear error:", err);
+      res.writeHead(500, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "Failed to clear" }));
+    }
+    return;
+  }
+
+  // Vote
   if (url === `${BASE}/vote` && req.method === "POST") {
     let body = "";
     req.on("data", (chunk) => { body += chunk; });
