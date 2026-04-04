@@ -13,7 +13,10 @@ component = "vote-edge-function"
 [component.vote-edge-function]
 source = "dist/vote-edge-function.wasm"
 exclude_files = ["**/node_modules"]
-allowed_outbound_hosts = ["https://{CDN_HOSTNAME}"]
+allowed_outbound_hosts = [
+  "https://{CDN_HOSTNAME}",
+  "https://web{CDN_HOSTNAME}"
+]
 
 [component.vote-edge-function.build]
 command = "npm install && npm run build"

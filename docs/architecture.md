@@ -8,84 +8,69 @@ Audience members vote on their phones; results appear live on a presenter displa
 ## Data flow
 
 1. Audience member opens the voter UI on their phone
-2. They tap a vote option — browser POSTs to the Akamai Function
+2. They tap a vote option — browser POSTs to `/voterapp/api/vote`
 3. Akamai Function validates, generates dedup token from IP+UA, forwards to SSE server
-4. SSE server deduplicates via Redis (SET NX), publishes event (PUBLISH)
-5. SSE server fans out the event to all open `/voterapp/events` SSE connections
+4. SSE server deduplicates via Redis (`SET NX`), publishes event (`PUBLISH`)
+5. SSE server fans out the event to all open `/voterapp/api/events` SSE connections
 6. Presenter display receives event, increments local tally, redraws bar chart
 
 ## URL structure
 
-### Public voter-facing (through Akamai CDN)
-| Path | Description |
-|---|---|
-| `https://{CDN_HOSTNAME}/voterapp/` | Voter UI — requires trailing slash |
-| `https://{CDN_HOSTNAME}/voterapp/vote` | Vote submission (POST) |
+All paths are under `/voterapp/`:
 
-### Fermyon Wasm Functions (direct access)
-| Path | Description |
-|---|---|
-| `https://{FWF_APP_URL}/voterapp/` | Voter UI — requires trailing slash |
-| `https://{FWF_APP_URL}/voterapp/vote` | Vote handler (POST) |
-| `https://{FWF_APP_URL}/voterapp/admin/` | Admin UI — live totals and clear votes |
-
-### Backend / origin (LKE — direct, bypasses Akamai)
-| Path | Description |
-|---|---|
-| `https://{ORIGIN_HOSTNAME}/voterapp/health` | Health check |
-| `https://{ORIGIN_HOSTNAME}/voterapp/vote` | Vote endpoint (POST) |
-| `https://{ORIGIN_HOSTNAME}/voterapp/events` | SSE stream — presenter display connects here |
-| `https://{ORIGIN_HOSTNAME}/voterapp/totals` | Current vote totals (GET) |
-| `https://{ORIGIN_HOSTNAME}/voterapp/admin/clear` | Clear all voter tokens and reset totals (POST) |
-
-### Akamai property path mapping
-| Incoming path | Forwards to | Notes |
+| Path | Type | Description |
 |---|---|---|
-| `{CDN_HOSTNAME}/voterapp/*` | `{ORIGIN_HOSTNAME}/voterapp/*` | No path rewrite — full path preserved |
+| `/voterapp/` | HTML | Voter UI |
+| `/voterapp/admin/` | HTML | Admin UI — live totals and clear votes |
+| `/voterapp/api/vote` | POST | Submit a vote |
+| `/voterapp/api/clear` | POST | Clear all voter tokens and reset totals |
+| `/voterapp/api/totals` | GET | Current vote totals |
+| `/voterapp/api/events` | GET SSE | Live event stream — connect directly to origin |
+| `/voterapp/api/health` | GET | Health check |
 
-## Why SSE bypasses Akamai
+> **Note:** `/voterapp/api/events` must connect directly to the origin — it cannot
+> pass through the CDN due to response buffering. The presenter display and admin UI
+> connect directly to the origin hostname for SSE and admin API calls.
 
-SSE is a long-lived HTTP response that streams data in chunks indefinitely.
-Akamai buffers responses before forwarding — it waits for the response to complete,
-which never happens with SSE. The presenter display and admin UI connect directly
-to the origin to avoid this buffering.
+## CDN routing
 
-To make SSE work through Akamai would require:
-- Streaming behavior enabled (disable response buffering)
-- Read timeout set to 3600+ seconds
-- SureRoute and gzip compression disabled for that path
+The Akamai CDN property routes `/voterapp/*` to the origin (LKE).
+The Fermyon function is accessible directly via its `{FUNCTION_DOMAIN}` URL or can be placed
+behind the CDN on a separate path. HTML pages (voter UI, admin UI) are served by
+the Fermyon function. API calls are handled by the SSE server on LKE.
 
 ## Components
 
 ### Akamai Functions (Fermyon / Spin / Wasm)
-- Handles: voter UI, vote submission, admin UI
-- Outbound: calls `{CDN_HOSTNAME}/voterapp/vote` (through Akamai CDN to origin)
-- Dedup token: generated from `True-Client-IP` + `User-Agent` headers at the edge
+- Serves voter UI HTML and admin UI HTML
+- Handles `POST /voterapp/api/vote` — validates and forwards to SSE server
+- Outbound URL configured at build time via `src/config.js` (gitignored)
+- Build with real URLs: `SSE_SERVER_URL` and `ORIGIN_URL` in `src/config.js`
+- Deploy: `npm run build && spin aka deploy`
 
 ### SSE server (LKE)
-- Language: Node.js / TypeScript
-- All routes under `/voterapp/` prefix
+- Node.js / TypeScript
+- All routes under `/voterapp/api/` prefix
 - Maintains in-memory vote totals (reset on pod restart)
 - Two Redis connections: one for subscribe, one for publish/commands
 
 ### Redis (LKE)
-- Single pod, Bitnami Helm chart, emptyDir (no PersistentVolume)
+- Single pod, Bitnami Helm chart, `emptyDir` (no PersistentVolume)
 - ClusterIP only — never exposed outside the cluster
 - `SET NX voter:{token} 1 EX 3600` — deduplication (1 hour TTL)
 - `PUBLISH votes {option}` — fan out to SSE server subscriber
-- `KEYS voter:*` + `DEL` — used by admin clear endpoint
 
 ### Presenter display
 - File: `display-ui/index.html`
-- Connects via EventSource directly to `{ORIGIN_HOSTNAME}/voterapp/events`
+- EventSource connects directly to `{ORIGIN_HOSTNAME}/voterapp/api/events`
 - Tallies vote events locally, animates Chart.js bar chart
-- Fullscreen on dedicated display — open directly in browser
+- Fullscreen on dedicated display
 
 ### Admin UI
 - Served by Fermyon function at `/voterapp/admin/`
-- Polls `{ORIGIN_HOSTNAME}/voterapp/totals` every 5 seconds
-- Also subscribes to SSE stream for real-time updates
-- Clear button calls `{ORIGIN_HOSTNAME}/voterapp/admin/clear`
+- Polls `{ORIGIN_HOSTNAME}/voterapp/api/totals` every 5 seconds
+- SSE stream from `{ORIGIN_HOSTNAME}/voterapp/api/events` for real-time updates
+- Clear button calls `{ORIGIN_HOSTNAME}/voterapp/api/clear`
 
 ## Infrastructure
 
@@ -97,28 +82,39 @@ To make SSE work through Akamai would require:
 | Ingress | Linode LKE | nginx ingress controller |
 | TLS | Let's Encrypt via cert-manager | DNS-01 validation, Linode webhook |
 | DNS | Linode DNS Manager | |
-| CDN / edge | Akamai | Property with path-based routing |
+| CDN / edge | Akamai | Path-based routing to origin |
 
 ## Security
 
 - LKE cluster only accepts traffic on 443 from Akamai edge IPs (Akamai IPACL)
 - Redis is ClusterIP only — no external exposure
 - TLS auto-renewed by cert-manager (DNS-01, Linode webhook)
-- Voter dedup via Redis SET NX — silent 200 on duplicate votes
-- No secrets committed to git — created via kubectl directly
+- Voter dedup via Redis `SET NX` — silent 200 on duplicate votes
+- No secrets or hostnames committed to git
 
-## Known limitations
+## Build configuration
 
-- SSE stream cannot pass through Akamai CDN without additional property configuration
-- Vote totals are in-memory — lost on SSE server pod restart
-- Dedup token based on IP+UA fingerprint — sufficient for live events
-- Admin UI has no authentication — access via direct URL only
+The Fermyon function requires two URLs configured at build time via `src/config.js`.
+This file is gitignored. Copy `src/config.example.js` to `src/config.js` and fill in:
+```js
+// src/config.js — gitignored, never commit
+export const SSE_SERVER_URL = 'https://{CDN_HOSTNAME}/voterapp/api/vote';
+export const ORIGIN_URL = 'https://{ORIGIN_HOSTNAME}/voterapp';
+```
+
+Then build and deploy:
+```bash
+cd vote-edge-function
+npm run build && spin aka deploy
+```
 
 ## Secrets — never committed to git
 ```bash
+# Redis password
 kubectl create secret generic redis-secret \
   --from-literal=password=YOUR_REDIS_PASSWORD
 
+# Linode API token (cert-manager DNS-01 validation)
 kubectl create secret generic linode-credentials \
   --namespace cert-manager \
   --from-literal=token=YOUR_LINODE_API_TOKEN
@@ -135,15 +131,12 @@ kubectl logs -l app=sse-server -f
 # Redis CLI
 kubectl exec -it redis-master-0 -- redis-cli -a YOUR_PASSWORD
 
-# List all voter dedup keys
-kubectl exec -it redis-master-0 -- redis-cli -a YOUR_PASSWORD KEYS "voter:*"
-
 # Clear all voter tokens manually
 kubectl exec -it redis-master-0 -- redis-cli -a YOUR_PASSWORD FLUSHDB
 
 # Redeploy SSE server after image push
 kubectl rollout restart deployment sse-server
 
-# Deploy edge function
-cd vote-edge-function && spin aka deploy
+# Build and deploy edge function
+cd vote-edge-function && npm run build && spin aka deploy
 ```

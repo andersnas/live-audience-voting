@@ -1,18 +1,13 @@
 import { AutoRouter } from 'itty-router';
-
+import { SSE_SERVER_URL, ORIGIN_URL } from './config.js';
 
 const router = AutoRouter();
-const SSE_SERVER_URL = 'https://{CDN_HOSTNAME}/voterapp/api/vote';
-const ORIGIN_URL = 'https://{ORIGIN_HOSTNAME}/voterapp';
+
 const VALID_OPTIONS = ["A", "B", "C", "D"];
 
 // Read SSE server URL from Spin variable — overridable at runtime
 function getSSEServerURL() {
-  try {
-    return Variables.get("sse_server_url");
-  } catch {
-    return "https://{CDN_HOSTNAME}/voterapp/api/vote";
-  }
+  return __SSE_SERVER_URL__;
 }
 
 function getToken(req) {
