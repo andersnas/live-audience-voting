@@ -18,19 +18,19 @@ Voter phone
 ### How it works
 
 1. Voter opens the voter UI served from Akamai Functions (Fermyon/Spin)
-2. Voter taps an option — browser POSTs to the Wasm vote handler
-3. Wasm function validates the vote, generates a dedup token from the voter's IP and User-Agent, forwards to the SSE server
-4. SSE server deduplicates via Redis (`SET NX`), publishes the event via Redis pub/sub
+2. Voter taps an option — browser POSTs to `/voterapp/api/vote`
+3. Wasm function validates, generates a dedup token from IP+UA, forwards to SSE server
+4. SSE server deduplicates via Redis (`SET NX`), publishes event via Redis pub/sub
 5. SSE server fans the event out to all connected `EventSource` clients
-6. Presenter display receives the event, increments local tally, animates the bar chart
+6. Presenter display receives the event, increments local tally, animates bar chart
 
 ## Components
 
 | Component | Technology | Platform |
 |---|---|---|
-| Voter UI | Static HTML served by Spin | Akamai Functions (Fermyon) |
+| Voter UI | HTML served by Spin | Akamai Functions (Fermyon) |
 | Vote handler | Spin/Wasm (JavaScript SDK) | Akamai Functions (Fermyon) |
-| Admin UI | Static HTML served by Spin | Akamai Functions (Fermyon) |
+| Admin UI | HTML served by Spin | Akamai Functions (Fermyon) |
 | SSE server | Node.js / TypeScript | Linode LKE |
 | Vote deduplication | Redis `SET NX` | Linode LKE (ClusterIP) |
 | Vote pub/sub | Redis `PUBLISH/SUBSCRIBE` | Linode LKE (ClusterIP) |
@@ -40,28 +40,34 @@ Voter phone
 
 ## URL structure
 
-All public paths are under `/voterapp/`:
+All paths are under `/voterapp/`:
 
-| Path | Description |
-|---|---|
-| `/voterapp/` | Voter UI — requires trailing slash |
-| `/voterapp/vote` | Vote submission (POST) |
-| `/voterapp/admin/` | Admin UI — live totals and clear votes |
-| `/voterapp/health` | Health check |
-| `/voterapp/events` | SSE stream — presenter display connects here directly |
-| `/voterapp/totals` | Current vote totals (GET) |
-| `/voterapp/admin/clear` | Clear all voter tokens and reset totals (POST) |
+| Path | Type | Description |
+|---|---|---|
+| `/voterapp/` | HTML | Voter UI |
+| `/voterapp/admin/` | HTML | Admin UI — live totals and clear votes |
+| `/voterapp/api/vote` | POST | Submit a vote |
+| `/voterapp/api/clear` | POST | Clear all voter tokens and reset totals |
+| `/voterapp/api/totals` | GET | Current vote totals |
+| `/voterapp/api/events` | GET SSE | Live event stream — connect directly to origin |
+| `/voterapp/api/health` | GET | Health check |
 
-> **Note:** The SSE stream (`/voterapp/events`) must be accessed directly from the origin — it cannot pass through the CDN due to response buffering. The presenter display and admin UI connect directly to the origin for this reason.
+> **Note:** `/voterapp/api/events` must connect directly to the origin — it cannot
+> pass through the CDN due to response buffering. The presenter display and admin UI
+> connect directly to the origin for SSE and admin API calls.
 
 ## Project structure
 ```
 live-audience-voting/
 ├── docs/
 │   └── architecture.md        # detailed architecture and operational notes
-├── vote-edge-function/        # Fermyon/Spin Wasm — voter UI, vote handler, admin UI
-│   ├── src/index.js
-│   └── spin.toml
+├── vote-edge-function/        # Fermyon/Spin Wasm — voter UI, admin UI, vote handler
+│   ├── src/
+│   │   ├── index.js           # request handler
+│   │   ├── config.js          # gitignored — real URLs go here
+│   │   └── config.example.js  # template — copy to config.js and fill in
+│   ├── spin.toml
+│   └── webpack.config.js
 ├── sse-server/                # Node.js SSE server — runs in LKE
 │   ├── src/index.ts
 │   ├── Dockerfile
@@ -76,17 +82,36 @@ live-audience-voting/
     └── README-secrets.md      # how to create K8s secrets (never committed)
 ```
 
+## Build configuration
+
+The Fermyon function requires two URLs at build time. Copy `src/config.example.js`
+to `src/config.js` and fill in your values:
+```js
+// src/config.js — gitignored, never commit real values
+export const SSE_SERVER_URL = 'https://{CDN_HOSTNAME}/voterapp/api/vote';
+export const ORIGIN_URL = 'https://{ORIGIN_HOSTNAME}/voterapp';
+```
+
+Then build and deploy:
+```bash
+cd vote-edge-function
+npm run build && spin aka deploy
+```
+
 ## Getting started
 
-See `docs/architecture.md` for the full setup guide including infrastructure requirements, deployment steps, and operational commands.
+See `docs/architecture.md` for the full setup guide including infrastructure
+requirements, deployment steps, and operational commands.
 
 ## Key design decisions
 
 - **Akamai Functions for the edge** — voter UI and vote handler run as Wasm at the edge with sub-millisecond cold starts
-- **SSE over WebSockets** — the presenter display is read-only; SSE is simpler, auto-reconnects, and works over plain HTTPS
+- **`/api/*` prefix for all API endpoints** — clean separation between HTML pages and API calls; enables different CDN caching rules per path type
+- **SSE over WebSockets** — presenter display is read-only; SSE is simpler, auto-reconnects, works over plain HTTPS
+- **SSE bypasses CDN** — Akamai buffers responses before forwarding; SSE never completes so the stream is accessed directly from origin
 - **Redis without persistence** — dedup keys are session-scoped (1 hour TTL); pod restarts between sessions are acceptable
-- **Tally computed in the browser** — the presenter display counts vote events locally from the SSE stream; no server-side aggregation needed
-- **No external SaaS** — everything runs on Akamai / Linode infrastructure
+- **Tally computed in the browser** — presenter display counts vote events locally from the SSE stream; no server-side aggregation needed
+- **No secrets in source** — build URLs stored in gitignored `config.js`; K8s secrets created via kubectl only
 
 ## License
 
