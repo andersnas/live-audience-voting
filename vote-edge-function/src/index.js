@@ -2,8 +2,8 @@ import { AutoRouter } from 'itty-router';
 
 
 const router = AutoRouter();
-const SSE_SERVER_URL = "https://{CDN_HOSTNAME}/voterapp/api/vote";
-const ORIGIN_URL = 'https://web{CDN_HOSTNAME}/voterapp';
+const SSE_SERVER_URL = 'https://{CDN_HOSTNAME}/voterapp/api/vote';
+const ORIGIN_URL = 'https://{ORIGIN_HOSTNAME}/voterapp';
 const VALID_OPTIONS = ["A", "B", "C", "D"];
 
 // Read SSE server URL from Spin variable — overridable at runtime
