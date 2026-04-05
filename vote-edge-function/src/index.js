@@ -2,6 +2,7 @@ import { AutoRouter } from 'itty-router';
 import { SSE_SERVER_URL, ORIGIN_URL } from './config.js';
 import voterHTML from '../html/voter.html';
 import adminHTML from '../html/admin.html';
+import displayHTML from '../html/display.html';
 
 const router = AutoRouter();
 const VALID_OPTIONS = ["A", "B", "C", "D"];
@@ -33,6 +34,14 @@ function voterUI(base) {
 function adminUI() {
   return new Response(
     adminHTML.replace('__ORIGIN_URL__', ORIGIN_URL),
+    { status: 200, headers: { "content-type": "text/html; charset=utf-8" } }
+  );
+}
+
+function displayUI() {
+  const sseUrl = SSE_SERVER_URL.replace('/api/vote', '/api/events');
+  return new Response(
+    displayHTML.replace('"__SSE_URL__"', JSON.stringify(sseUrl)),
     { status: 200, headers: { "content-type": "text/html; charset=utf-8" } }
   );
 }
@@ -74,6 +83,7 @@ router.all("*", async (req) => {
   if (path.endsWith('/api/vote') && req.method === 'POST') return handleVote(req);
   if (path.endsWith('/api/health')) return new Response('ok', { status: 200, headers: { "content-type": "text/plain" } });
   if (path.endsWith('/admin') || path.endsWith('/admin/')) return adminUI();
+  if (path.endsWith('/display') || path.endsWith('/display/')) return displayUI();
   return voterUI(base);
 });
 

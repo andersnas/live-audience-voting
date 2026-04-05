@@ -62,11 +62,18 @@ const server = http.createServer(async (req, res) => {
       "content-type": "text/event-stream",
       "cache-control": "no-cache",
       connection: "keep-alive",
+      "x-accel-buffering": "no",
     });
     res.write(": connected\n\n");
     res.write(`data: ${JSON.stringify({ totals, ts: Date.now() })}\n\n`);
     clients.add(res);
     console.log(`SSE client connected. Total: ${clients.size}`);
+    
+    // Keepalive heartbeat every 30 seconds
+    const heartbeat = setInterval(() => {
+      res.write(': heartbeat\n\n');
+    }, 30000);
+
     req.on("close", () => {
       clients.delete(res);
       console.log(`SSE client disconnected. Total: ${clients.size}`);
