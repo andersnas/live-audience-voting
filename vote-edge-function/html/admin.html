@@ -4,63 +4,182 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
   <title>Vote Admin</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&family=DM+Mono&display=swap" rel="stylesheet">
   <style>
-    *{margin:0;padding:0;box-sizing:border-box}
-    body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#0f0f0f;color:#fff;min-height:100vh;padding:2rem}
-    h1{font-size:1.8rem;font-weight:600;margin-bottom:.5rem}
-    .subtitle{color:#666;font-size:.9rem;margin-bottom:2rem}
-    .totals{display:grid;grid-template-columns:repeat(2,1fr);gap:1rem;max-width:500px;margin-bottom:2rem}
-    .card{background:#1a1a1a;border-radius:12px;padding:1.5rem;text-align:center}
-    .card .label{font-size:.9rem;color:#666;margin-bottom:.5rem}
-    .card .count{font-size:3rem;font-weight:700}
-    .card .pct{font-size:.85rem;color:#555;margin-top:.3rem}
-    .card[data-option="A"] .count{color:#5b8dee}
-    .card[data-option="B"] .count{color:#e8593c}
-    .card[data-option="C"] .count{color:#1d9e75}
-    .card[data-option="D"] .count{color:#ef9f27}
-    .total-row{color:#555;font-size:.95rem;margin-bottom:2rem}
-    .total-row strong{color:#fff}
-    .bar-container{max-width:500px;margin-bottom:2rem}
-    .bar-row{display:flex;align-items:center;gap:.75rem;margin-bottom:.6rem}
-    .bar-label{width:70px;font-size:.85rem;color:#aaa}
-    .bar-track{flex:1;background:#1a1a1a;border-radius:4px;height:28px;overflow:hidden}
-    .bar-fill{height:100%;border-radius:4px;transition:width .4s ease}
-    .bar-fill[data-option="A"]{background:#5b8dee}
-    .bar-fill[data-option="B"]{background:#e8593c}
-    .bar-fill[data-option="C"]{background:#1d9e75}
-    .bar-fill[data-option="D"]{background:#ef9f27}
-    .bar-count{width:30px;font-size:.85rem;color:#aaa;text-align:right}
-    .actions{display:flex;gap:1rem;max-width:500px;flex-wrap:wrap}
-    .btn{padding:.75rem 1.5rem;border:none;border-radius:8px;font-size:.95rem;font-weight:600;cursor:pointer;transition:opacity .15s}
-    .btn-clear{background:#e24b4a;color:#fff}
-    .btn-refresh{background:#1a1a1a;color:#aaa;border:1px solid #333}
-    .btn:hover{opacity:.8}
-    .status{margin-top:1rem;font-size:.85rem;color:#555}
-    .status.ok{color:#1d9e75}
-    .status.err{color:#e24b4a}
+    :root {
+      --bg: #002f6c;
+      --bg-card: #003d8a;
+      --bg-surface: rgba(255,255,255,0.05);
+      --btn-a: #a64c7a;
+      --btn-b: #04cd63;
+      --btn-c: #00a3eb;
+      --btn-d: #7a7cff;
+      --text: #ffffff;
+      --text-muted: rgba(255,255,255,0.5);
+      --border: rgba(255,255,255,0.08);
+      --radius: 14px;
+      --green: #04cd63;
+      --red: #ff4d6d;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'DM Sans', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      padding: 2rem;
+      background-image:
+        radial-gradient(ellipse at 10% 10%, rgba(0,163,235,0.1) 0%, transparent 50%),
+        radial-gradient(ellipse at 90% 90%, rgba(122,124,255,0.1) 0%, transparent 50%);
+    }
+    .header {
+      display: flex;
+      align-items: baseline;
+      gap: 1rem;
+      margin-bottom: 2rem;
+    }
+    h1 { font-size: 1.6rem; font-weight: 700; }
+    .eyebrow {
+      font-family: 'DM Mono', monospace;
+      font-size: 0.7rem;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: var(--btn-c);
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 1rem;
+      max-width: 700px;
+      margin-bottom: 1.5rem;
+    }
+    .card {
+      background: var(--bg-card);
+      border-radius: var(--radius);
+      padding: 1.25rem;
+      text-align: center;
+      border: 1px solid var(--border);
+    }
+    .card .label {
+      font-family: 'DM Mono', monospace;
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      margin-bottom: 0.5rem;
+    }
+    .card .count { font-size: 2.5rem; font-weight: 700; line-height: 1; }
+    .card .pct { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.35rem; }
+    .card[data-option="A"] .count { color: var(--btn-a); }
+    .card[data-option="B"] .count { color: var(--btn-b); }
+    .card[data-option="C"] .count { color: var(--btn-c); }
+    .card[data-option="D"] .count { color: var(--btn-d); }
+    .total {
+      font-family: 'DM Mono', monospace;
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      margin-bottom: 1.75rem;
+      max-width: 700px;
+    }
+    .total strong { color: var(--text); }
+    .bars { max-width: 700px; margin-bottom: 2rem; }
+    .bar-row {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      margin-bottom: 0.6rem;
+    }
+    .bar-lbl {
+      font-family: 'DM Mono', monospace;
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      width: 24px;
+      text-align: center;
+      flex-shrink: 0;
+    }
+    .bar-track {
+      flex: 1;
+      background: var(--bg-surface);
+      border-radius: 6px;
+      height: 24px;
+      overflow: hidden;
+    }
+    .bar-fill {
+      height: 100%;
+      border-radius: 6px;
+      transition: width 0.4s cubic-bezier(0.4,0,0.2,1);
+    }
+    .bar-fill[data-option="A"] { background: var(--btn-a); }
+    .bar-fill[data-option="B"] { background: var(--btn-b); }
+    .bar-fill[data-option="C"] { background: var(--btn-c); }
+    .bar-fill[data-option="D"] { background: var(--btn-d); }
+    .bar-count {
+      font-family: 'DM Mono', monospace;
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      width: 28px;
+      text-align: right;
+      flex-shrink: 0;
+    }
+    .actions { display: flex; gap: 0.75rem; max-width: 700px; flex-wrap: wrap; margin-bottom: 1rem; }
+    .btn {
+      padding: 0.65rem 1.25rem;
+      border: none;
+      border-radius: 10px;
+      font-family: 'DM Sans', sans-serif;
+      font-size: 0.9rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: opacity 0.15s, transform 0.1s;
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+    .btn:active { transform: scale(0.97); }
+    .btn-clear { background: var(--red); color: #fff; }
+    .btn-refresh { background: var(--bg-surface); color: var(--text); border: 1px solid var(--border); }
+    .btn:hover { opacity: 0.85; }
+    .status {
+      font-family: 'DM Mono', monospace;
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      height: 1.2rem;
+    }
+    .status.ok { color: var(--green); }
+    .status.err { color: var(--red); }
   </style>
 </head>
 <body>
-  <h1>Vote Admin</h1>
-  <p class="subtitle">Live vote results and session management</p>
-  <div class="totals">
-    <div class="card" data-option="A"><div class="label">Option A</div><div class="count" id="count-A">0</div><div class="pct" id="pct-A">0%</div></div>
-    <div class="card" data-option="B"><div class="label">Option B</div><div class="count" id="count-B">0</div><div class="pct" id="pct-B">0%</div></div>
-    <div class="card" data-option="C"><div class="label">Option C</div><div class="count" id="count-C">0</div><div class="pct" id="pct-C">0%</div></div>
-    <div class="card" data-option="D"><div class="label">Option D</div><div class="count" id="count-D">0</div><div class="pct" id="pct-D">0%</div></div>
+  <div class="header">
+    <div>
+      <div class="eyebrow">Control Panel</div>
+      <h1>Vote Admin</h1>
+    </div>
   </div>
-  <div class="total-row">Total votes: <strong id="total">0</strong></div>
-  <div class="bar-container">
-    <div class="bar-row"><span class="bar-label">Option A</span><div class="bar-track"><div class="bar-fill" data-option="A" id="bar-A" style="width:0%"></div></div><span class="bar-count" id="bar-count-A">0</span></div>
-    <div class="bar-row"><span class="bar-label">Option B</span><div class="bar-track"><div class="bar-fill" data-option="B" id="bar-B" style="width:0%"></div></div><span class="bar-count" id="bar-count-B">0</span></div>
-    <div class="bar-row"><span class="bar-label">Option C</span><div class="bar-track"><div class="bar-fill" data-option="C" id="bar-C" style="width:0%"></div></div><span class="bar-count" id="bar-count-C">0</span></div>
-    <div class="bar-row"><span class="bar-label">Option D</span><div class="bar-track"><div class="bar-fill" data-option="D" id="bar-D" style="width:0%"></div></div><span class="bar-count" id="bar-count-D">0</span></div>
+
+  <div class="grid">
+    <div class="card" data-option="A"><div class="label">A — Java</div><div class="count" id="count-A">0</div><div class="pct" id="pct-A">0%</div></div>
+    <div class="card" data-option="B"><div class="label">B — C#</div><div class="count" id="count-B">0</div><div class="pct" id="pct-B">0%</div></div>
+    <div class="card" data-option="C"><div class="label">C — NodeJS</div><div class="count" id="count-C">0</div><div class="pct" id="pct-C">0%</div></div>
+    <div class="card" data-option="D"><div class="label">D — Other</div><div class="count" id="count-D">0</div><div class="pct" id="pct-D">0%</div></div>
   </div>
+
+  <div class="total">Total votes: <strong id="total">0</strong></div>
+
+  <div class="bars">
+    <div class="bar-row"><span class="bar-lbl">A</span><div class="bar-track"><div class="bar-fill" data-option="A" id="bar-A" style="width:0%"></div></div><span class="bar-count" id="bar-count-A">0</span></div>
+    <div class="bar-row"><span class="bar-lbl">B</span><div class="bar-track"><div class="bar-fill" data-option="B" id="bar-B" style="width:0%"></div></div><span class="bar-count" id="bar-count-B">0</span></div>
+    <div class="bar-row"><span class="bar-lbl">C</span><div class="bar-track"><div class="bar-fill" data-option="C" id="bar-C" style="width:0%"></div></div><span class="bar-count" id="bar-count-C">0</span></div>
+    <div class="bar-row"><span class="bar-lbl">D</span><div class="bar-track"><div class="bar-fill" data-option="D" id="bar-D" style="width:0%"></div></div><span class="bar-count" id="bar-count-D">0</span></div>
+  </div>
+
   <div class="actions">
     <button class="btn btn-refresh" onclick="fetchTotals()">↻ Refresh</button>
     <button class="btn btn-clear" onclick="clearVotes()">✕ Clear all votes</button>
   </div>
   <div class="status" id="status"></div>
+
   <script>
     const ORIGIN = '__ORIGIN_URL__';
     function updateUI(totals, total) {
@@ -93,8 +212,7 @@
     }
     function setStatus(msg, type) {
       const el = document.getElementById('status');
-      el.textContent = msg;
-      el.className = 'status ' + type;
+      el.textContent = msg; el.className = 'status ' + type;
       setTimeout(() => { el.textContent = ''; el.className = 'status'; }, 3000);
     }
     fetchTotals();
