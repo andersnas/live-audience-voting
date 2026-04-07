@@ -162,6 +162,29 @@ body {
   margin-top: 0.75rem;
 }
 
+.pulse-indicator {
+  width: 48px; height: 48px;
+  border-radius: 50%;
+  background: var(--btn-c);
+  margin: 1.5rem auto;
+  animation: pulse 1.8s ease-in-out infinite;
+}
+.pulse-indicator.pulse-small {
+  width: 24px; height: 24px;
+  margin: 1.25rem auto 0.5rem;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 0.3; transform: scale(0.85); }
+  50% { opacity: 1; transform: scale(1); }
+}
+
+.voted-waiting {
+  margin-top: 2rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--border);
+}
+
 .confirm-wrap { text-align: center; }
 .confirm-icon {
   width: 72px; height: 72px;

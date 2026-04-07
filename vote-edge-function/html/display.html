@@ -79,6 +79,15 @@
       es.onmessage = (e) => {
         try {
           const ev = JSON.parse(e.data);
+          if (ev.type === 'waiting' || ev.type === 'deactivate') {
+            document.getElementById("question-text").textContent = "Waiting for question...";
+            options = [];
+            labels = [];
+            tally = {};
+            if (chart) { chart.destroy(); chart = null; }
+            document.getElementById("total").textContent = "0 votes";
+            return;
+          }
           if (ev.type === 'activate' && ev.question) {
             setQuestion(ev.question, ev.totals);
             return;
