@@ -99,7 +99,7 @@ body {
 .opt-btn:disabled { opacity: 0.35; cursor: not-allowed; transform: none; }
 
 .opt-btn[data-option="A"] { background: var(--btn-a); box-shadow: 0 4px 20px rgba(166,76,122,0.4); }
-.opt-btn[data-option="B"] { background: var(--btn-b); box-shadow: 0 4px 20px rgba(4,205,99,0.4); color: #001a00; }
+.opt-btn[data-option="B"] { background: var(--btn-b); box-shadow: 0 4px 20px rgba(4,205,99,0.4); }
 .opt-btn[data-option="C"] { background: var(--btn-c); box-shadow: 0 4px 20px rgba(0,163,235,0.4); }
 .opt-btn[data-option="D"] { background: var(--btn-d); box-shadow: 0 4px 20px rgba(122,124,255,0.4); }
 
@@ -334,11 +334,25 @@ body {
   flex-shrink: 0;
 }
 .queue-badge-active { background: var(--btn-c); color: #fff; }
-.queue-badge-done { background: var(--btn-b); color: #001a00; }
+.queue-badge-done { background: var(--btn-b); color: #fff; }
 .queue-badge-pending { background: rgba(255,255,255,0.08); color: var(--muted); }
 
-.btn-activate { background: var(--btn-b); color: #001a00; }
+.btn-activate { background: var(--btn-b); color: #fff; }
 .btn-deactivate { background: var(--bg-surface); color: var(--text); border: 1px solid var(--border); }
+
+/* ── CRUD Forms ─────────────────────────────── */
+.crud-form {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.5rem;
+}
+.crud-question {
+  padding: 1rem;
+  background: var(--bg-surface);
+  border-radius: 10px;
+  margin-bottom: 0.75rem;
+}
 
 /* ── Set Picker ─────────────────────────────── */
 .set-card {
@@ -353,6 +367,7 @@ body {
 .set-card:hover { border-color: var(--btn-c); background: rgba(0,163,235,0.08); }
 .set-card-name { font-size: 1.1rem; font-weight: 700; margin-bottom: 0.3rem; }
 .set-card-meta { font-family: var(--mono); font-size: 0.75rem; color: var(--muted); }
+.set-card-id { font-family: var(--mono); font-size: 0.65rem; color: rgba(255,255,255,0.25); margin-top: 0.25rem; }
 
 /* ── Display UI ──────────────────────────────── */
 .display-wrap {
