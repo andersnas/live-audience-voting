@@ -340,6 +340,20 @@ body {
 .btn-activate { background: var(--btn-b); color: #001a00; }
 .btn-deactivate { background: var(--bg-surface); color: var(--text); border: 1px solid var(--border); }
 
+/* ── Set Picker ─────────────────────────────── */
+.set-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.25rem 1.5rem;
+  margin-bottom: 0.75rem;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.set-card:hover { border-color: var(--btn-c); background: rgba(0,163,235,0.08); }
+.set-card-name { font-size: 1.1rem; font-weight: 700; margin-bottom: 0.3rem; }
+.set-card-meta { font-family: var(--mono); font-size: 0.75rem; color: var(--muted); }
+
 /* ── Display UI ──────────────────────────────── */
 .display-wrap {
   display: flex;

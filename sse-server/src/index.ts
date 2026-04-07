@@ -127,6 +127,36 @@ const server = http.createServer(async (req, res) => {
     res.end("ok"); return;
   }
 
+  // --- Sessions list ---
+  if (url === `${BASE}/sessions` && req.method === "GET") {
+    try {
+      const keys = await publisher.keys("set:*");
+      // Filter to only set:{uuid} keys (no :active, :voters, :votes suffixes)
+      const setKeys = keys.filter(k => {
+        const parts = k.split(":");
+        return parts.length === 2;
+      });
+      const sessions = [];
+      for (const key of setKeys) {
+        const raw = await publisher.get(key);
+        if (!raw) continue;
+        const data = JSON.parse(raw) as QuestionSet;
+        sessions.push({
+          id: key.replace("set:", ""),
+          name: data.name,
+          questionCount: data.questions.length,
+          createdAt: data.createdAt,
+        });
+      }
+      sessions.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+      json(res, 200, sessions);
+    } catch (err: any) {
+      console.error("Sessions list error:", err);
+      json(res, 500, { error: "Failed to list sessions" });
+    }
+    return;
+  }
+
   // --- Admin/login ---
   if (url === `${BASE}/admin/login` && req.method === "POST") {
     try {
