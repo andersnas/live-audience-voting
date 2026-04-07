@@ -1,39 +1,104 @@
 import http from "http";
+import crypto from "crypto";
 import Redis from "ioredis";
+
+// --- Types ---
+
+interface QuestionOption {
+  key: string;
+  label: string;
+}
+
+interface Question {
+  id: string;
+  label: string;
+  options: QuestionOption[];
+}
+
+interface QuestionSet {
+  name: string;
+  accessCodeHash: string;
+  questions: Question[];
+  createdAt: string;
+}
+
+// --- Config ---
 
 const PORT = parseInt(process.env.PORT ?? "3000");
 const REDIS_HOST = process.env.REDIS_HOST ?? "localhost";
 const REDIS_PORT = parseInt(process.env.REDIS_PORT ?? "6379");
 const REDIS_PASSWORD = process.env.REDIS_PASSWORD ?? "";
-const VOTES_CHANNEL = "votes";
-const VOTER_KEY_PREFIX = "voter:";
 const SESSION_TTL = parseInt(process.env.SESSION_TTL ?? "3600");
-const VALID_OPTIONS = ["A", "B", "C", "D"];
 const INTERNAL_TOKEN = process.env.INTERNAL_TOKEN ?? "";
 const BASE = "/voterapp/api";
+
+// --- Redis ---
 
 const publisher = new Redis({ host: REDIS_HOST, port: REDIS_PORT, password: REDIS_PASSWORD });
 const subscriber = new Redis({ host: REDIS_HOST, port: REDIS_PORT, password: REDIS_PASSWORD });
 
-const clients = new Set<http.ServerResponse>();
-const totals: Record<string, number> = { A: 0, B: 0, C: 0, D: 0 };
+// --- SSE clients scoped per set ---
 
-subscriber.subscribe(VOTES_CHANNEL, (err) => {
-  if (err) { console.error("Failed to subscribe:", err); process.exit(1); }
-  console.log(`Subscribed to ${VOTES_CHANNEL}`);
+const clients = new Map<string, Set<http.ServerResponse>>();
+
+function broadcast(setId: string, message: string) {
+  const data = `data: ${message}\n\n`;
+  const setClients = clients.get(setId);
+  if (setClients) {
+    for (const client of setClients) client.write(data);
+  }
+}
+
+// --- Redis pub/sub (pattern subscribe for set-scoped channels) ---
+
+subscriber.psubscribe("votes:*", (err) => {
+  if (err) { console.error("Failed to psubscribe:", err); process.exit(1); }
+  console.log("Subscribed to votes:* pattern");
 });
 
-subscriber.on("message", (_channel: string, message: string) => {
-  try {
-    const event = JSON.parse(message);
-    if (event.option && totals.hasOwnProperty(event.option)) totals[event.option]++;
-  } catch {}
-  const data = `data: ${message}\n\n`;
-  for (const client of clients) client.write(data);
+subscriber.on("pmessage", (_pattern: string, channel: string, message: string) => {
+  const setId = channel.replace("votes:", "");
+  broadcast(setId, message);
 });
 
 publisher.on("error", (err) => console.error("Redis publisher error:", err));
 subscriber.on("error", (err) => console.error("Redis subscriber error:", err));
+
+// --- Helpers ---
+
+function json(res: http.ServerResponse, status: number, body: unknown) {
+  res.writeHead(status, { "content-type": "application/json" });
+  res.end(JSON.stringify(body));
+}
+
+function readBody(req: http.IncomingMessage): Promise<string> {
+  return new Promise((resolve, reject) => {
+    let body = "";
+    req.on("data", (chunk) => { body += chunk; });
+    req.on("end", () => resolve(body));
+    req.on("error", reject);
+  });
+}
+
+async function getSet(setId: string): Promise<QuestionSet | null> {
+  const raw = await publisher.get(`set:${setId}`);
+  return raw ? JSON.parse(raw) : null;
+}
+
+async function getActiveQuestionId(setId: string): Promise<string | null> {
+  return await publisher.get(`set:${setId}:active`);
+}
+
+async function getTotals(setId: string, questionId: string): Promise<Record<string, number>> {
+  const raw = await publisher.hgetall(`set:${setId}:${questionId}:votes`);
+  const totals: Record<string, number> = {};
+  for (const [key, val] of Object.entries(raw)) {
+    totals[key] = parseInt(val, 10);
+  }
+  return totals;
+}
+
+// --- Server ---
 
 const server = http.createServer(async (req, res) => {
   const rawUrl = req.url ?? "/";
@@ -51,8 +116,7 @@ const server = http.createServer(async (req, res) => {
     const fromHeader = req.headers["x-internal-token"] as string | undefined;
     const fromQuery = parsedUrl.searchParams.get("token");
     if (fromHeader !== INTERNAL_TOKEN && fromQuery !== INTERNAL_TOKEN) {
-      res.writeHead(403, { "content-type": "application/json" });
-      res.end(JSON.stringify({ error: "Forbidden" }));
+      json(res, 403, { error: "Forbidden" });
       return;
     }
   }
@@ -63,15 +127,126 @@ const server = http.createServer(async (req, res) => {
     res.end("ok"); return;
   }
 
-  // Totals
-  if (url === `${BASE}/totals` && req.method === "GET") {
-    res.writeHead(200, { "content-type": "application/json" });
-    res.end(JSON.stringify({ totals, total: Object.values(totals).reduce((a, b) => a + b, 0) }));
+  // --- Session/create ---
+  if (url === `${BASE}/session/create` && req.method === "POST") {
+    try {
+      const body = JSON.parse(await readBody(req));
+      const { name, accessCode, questions } = body;
+      if (!name || typeof name !== "string") return json(res, 400, { error: "name is required" });
+      if (!accessCode || typeof accessCode !== "string") return json(res, 400, { error: "accessCode is required" });
+      if (!Array.isArray(questions) || questions.length === 0) return json(res, 400, { error: "questions array is required" });
+
+      const setId = crypto.randomUUID();
+      const accessCodeHash = crypto.createHash("sha256").update(accessCode).digest("hex");
+
+      const builtQuestions: Question[] = questions.map((q: any, i: number) => {
+        if (!q.label || !Array.isArray(q.options) || q.options.length < 2) {
+          throw new Error(`Invalid question at index ${i}`);
+        }
+        return {
+          id: `q${i}`,
+          label: q.label,
+          options: q.options.map((o: any) => ({ key: o.key, label: o.label })),
+        };
+      });
+
+      const questionSet: QuestionSet = {
+        name,
+        accessCodeHash,
+        questions: builtQuestions,
+        createdAt: new Date().toISOString(),
+      };
+
+      await publisher.set(`set:${setId}`, JSON.stringify(questionSet));
+      console.log(`Session created: ${setId} "${name}" with ${builtQuestions.length} questions`);
+      json(res, 201, { id: setId, name, questions: builtQuestions });
+    } catch (err: any) {
+      console.error("Session create error:", err);
+      json(res, 400, { error: err.message || "Invalid request" });
+    }
     return;
   }
 
-  // SSE stream
+  // --- Question (get active) ---
+  if (url === `${BASE}/question` && req.method === "GET") {
+    const setId = parsedUrl.searchParams.get("set");
+    if (!setId) return json(res, 400, { error: "set query param is required" });
+
+    const questionSet = await getSet(setId);
+    if (!questionSet) return json(res, 404, { error: "Set not found" });
+
+    const activeId = await getActiveQuestionId(setId);
+    if (!activeId) return json(res, 200, { setId, active: null });
+
+    const question = questionSet.questions.find(q => q.id === activeId);
+    if (!question) return json(res, 200, { setId, active: null });
+
+    const totals = await getTotals(setId, activeId);
+    const total = Object.values(totals).reduce((a, b) => a + b, 0);
+    json(res, 200, { setId, question, totals, total });
+    return;
+  }
+
+  // --- Question/activate ---
+  if (url === `${BASE}/question/activate` && req.method === "POST") {
+    try {
+      const body = JSON.parse(await readBody(req));
+      const { setId, questionId } = body;
+      if (!setId) return json(res, 400, { error: "setId is required" });
+
+      const questionSet = await getSet(setId);
+      if (!questionSet) return json(res, 404, { error: "Set not found" });
+
+      if (questionId === null || questionId === undefined) {
+        await publisher.del(`set:${setId}:active`);
+        await publisher.publish(`votes:${setId}`, JSON.stringify({ type: "deactivate", ts: Date.now() }));
+        console.log(`Deactivated question for set ${setId}`);
+        return json(res, 200, { ok: true, active: null });
+      }
+
+      const question = questionSet.questions.find(q => q.id === questionId);
+      if (!question) return json(res, 400, { error: "Question not found in set" });
+
+      await publisher.set(`set:${setId}:active`, questionId);
+      const totals = await getTotals(setId, questionId);
+      const total = Object.values(totals).reduce((a, b) => a + b, 0);
+      await publisher.publish(`votes:${setId}`, JSON.stringify({
+        type: "activate", questionId, question, totals, total, ts: Date.now(),
+      }));
+      console.log(`Activated question ${questionId} for set ${setId}`);
+      json(res, 200, { ok: true, active: questionId });
+    } catch (err: any) {
+      console.error("Activate error:", err);
+      json(res, 400, { error: err.message || "Invalid request" });
+    }
+    return;
+  }
+
+  // --- Totals ---
+  if (url === `${BASE}/totals` && req.method === "GET") {
+    const setId = parsedUrl.searchParams.get("set");
+    if (!setId) return json(res, 400, { error: "set query param is required" });
+
+    const questionSet = await getSet(setId);
+    if (!questionSet) return json(res, 404, { error: "Set not found" });
+
+    const activeId = await getActiveQuestionId(setId);
+    if (!activeId) return json(res, 200, { setId, totals: {}, total: 0 });
+
+    const totals = await getTotals(setId, activeId);
+    const total = Object.values(totals).reduce((a, b) => a + b, 0);
+    json(res, 200, { setId, questionId: activeId, totals, total });
+    return;
+  }
+
+  // --- SSE stream ---
   if (url === `${BASE}/events` && req.method === "GET") {
+    const setId = parsedUrl.searchParams.get("set");
+    if (!setId) {
+      json(res, 400, { error: "set query param is required" });
+      return;
+    }
+
     res.writeHead(200, {
       "content-type": "text/event-stream",
       "cache-control": "no-cache",
@@ -79,72 +254,112 @@ const server = http.createServer(async (req, res) => {
       "x-accel-buffering": "no",
     });
     res.write(": connected\n\n");
-    res.write(`data: ${JSON.stringify({ totals, ts: Date.now() })}\n\n`);
-    clients.add(res);
-    console.log(`SSE client connected. Total: ${clients.size}`);
-    
-    // Keepalive heartbeat every 30 seconds
-    const heartbeat = setInterval(() => {
-      res.write(': heartbeat\n\n');
-    }, 30000);
+
+    // Send current state on connect
+    const questionSet = await getSet(setId);
+    const activeId = questionSet ? await getActiveQuestionId(setId) : null;
+    if (questionSet && activeId) {
+      const question = questionSet.questions.find(q => q.id === activeId);
+      const totals = await getTotals(setId, activeId);
+      const total = Object.values(totals).reduce((a, b) => a + b, 0);
+      res.write(`data: ${JSON.stringify({ type: "activate", questionId: activeId, question, totals, total, ts: Date.now() })}\n\n`);
+    } else {
+      res.write(`data: ${JSON.stringify({ type: "waiting", ts: Date.now() })}\n\n`);
+    }
+
+    if (!clients.has(setId)) clients.set(setId, new Set());
+    clients.get(setId)!.add(res);
+    console.log(`SSE client connected for set ${setId}. Total: ${clients.get(setId)!.size}`);
+
+    const heartbeat = setInterval(() => { res.write(": heartbeat\n\n"); }, 30000);
 
     req.on("close", () => {
-      clients.delete(res);
-      console.log(`SSE client disconnected. Total: ${clients.size}`);
+      clearInterval(heartbeat);
+      const setClients = clients.get(setId);
+      if (setClients) {
+        setClients.delete(res);
+        if (setClients.size === 0) clients.delete(setId);
+      }
+      console.log(`SSE client disconnected for set ${setId}.`);
     });
     return;
   }
 
-  // Clear all voter tokens
+  // --- Clear ---
   if (url === `${BASE}/clear` && req.method === "POST") {
     try {
-      const keys = await publisher.keys(`${VOTER_KEY_PREFIX}*`);
-      if (keys.length > 0) await publisher.del(...keys);
-      totals.A = 0; totals.B = 0; totals.C = 0; totals.D = 0;
-      const data = `data: ${JSON.stringify({ reset: true, ts: Date.now() })}\n\n`;
-      for (const client of clients) client.write(data);
-      console.log(`Cleared ${keys.length} voter tokens`);
-      res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify({ ok: true, cleared: keys.length }));
-    } catch (err) {
+      const body = JSON.parse(await readBody(req));
+      const { setId, questionId } = body;
+      if (!setId) return json(res, 400, { error: "setId is required" });
+
+      let cleared = 0;
+
+      if (questionId) {
+        // Clear specific question votes
+        await publisher.del(`set:${setId}:${questionId}:votes`);
+        const voterKeys = await publisher.keys(`voter:${setId}:*`);
+        if (voterKeys.length > 0) { await publisher.del(...voterKeys); cleared = voterKeys.length; }
+      } else {
+        // Clear all questions in set
+        const questionSet = await getSet(setId);
+        if (questionSet) {
+          for (const q of questionSet.questions) {
+            await publisher.del(`set:${setId}:${q.id}:votes`);
+          }
+        }
+        const voterKeys = await publisher.keys(`voter:${setId}:*`);
+        if (voterKeys.length > 0) { await publisher.del(...voterKeys); cleared = voterKeys.length; }
+      }
+
+      broadcast(setId, JSON.stringify({ type: "reset", questionId: questionId || null, ts: Date.now() }));
+      console.log(`Cleared votes for set ${setId}${questionId ? ` question ${questionId}` : ""}: ${cleared} voter keys`);
+      json(res, 200, { ok: true, cleared });
+    } catch (err: any) {
       console.error("Clear error:", err);
-      res.writeHead(500, { "content-type": "application/json" });
-      res.end(JSON.stringify({ error: "Failed to clear" }));
+      json(res, 500, { error: "Failed to clear" });
     }
     return;
   }
 
-  // Vote
+  // --- Vote ---
   if (url === `${BASE}/vote` && req.method === "POST") {
-    let body = "";
-    req.on("data", (chunk) => { body += chunk; });
-    req.on("end", async () => {
-      try {
-        const { option, token } = JSON.parse(body);
-        if (!VALID_OPTIONS.includes(option)) {
-          res.writeHead(400, { "content-type": "application/json" });
-          res.end(JSON.stringify({ error: "Invalid option" })); return;
-        }
-        if (!token || token.length < 8) {
-          res.writeHead(400, { "content-type": "application/json" });
-          res.end(JSON.stringify({ error: "Missing token" })); return;
-        }
-        const voterKey = `${VOTER_KEY_PREFIX}${token}`;
-        const isNew = await publisher.set(voterKey, "1", "EX", SESSION_TTL, "NX");
-        if (isNew) {
-          await publisher.publish(VOTES_CHANNEL, JSON.stringify({ option, ts: Date.now() }));
-          console.log(`Vote recorded: ${option}`);
-        } else {
-          console.log(`Duplicate vote ignored: ${token}`);
-        }
-        res.writeHead(200, { "content-type": "application/json" });
-        res.end(JSON.stringify({ ok: true }));
-      } catch (err) {
-        console.error("Vote error:", err);
-        res.writeHead(400, { "content-type": "application/json" });
-        res.end(JSON.stringify({ error: "Invalid JSON" }));
+    try {
+      const body = JSON.parse(await readBody(req));
+      const { option, token, setId } = body;
+
+      if (!setId) return json(res, 400, { error: "setId is required" });
+      if (!token || token.length < 8) return json(res, 400, { error: "Missing token" });
+
+      const activeId = await getActiveQuestionId(setId);
+      if (!activeId) return json(res, 400, { error: "No active question" });
+
+      const questionSet = await getSet(setId);
+      if (!questionSet) return json(res, 404, { error: "Set not found" });
+
+      const question = questionSet.questions.find(q => q.id === activeId);
+      if (!question) return json(res, 400, { error: "Active question not found" });
+
+      const validKeys = question.options.map(o => o.key);
+      if (!option || !validKeys.includes(option)) return json(res, 400, { error: "Invalid option" });
+
+      const voterKey = `voter:${setId}:${token}`;
+      const isNew = await publisher.set(voterKey, "1", "EX", SESSION_TTL, "NX");
+      if (isNew) {
+        await publisher.hincrby(`set:${setId}:${activeId}:votes`, option, 1);
+        const totals = await getTotals(setId, activeId);
+        const total = Object.values(totals).reduce((a, b) => a + b, 0);
+        await publisher.publish(`votes:${setId}`, JSON.stringify({
+          type: "vote", option, questionId: activeId, totals, total, ts: Date.now(),
+        }));
+        console.log(`Vote recorded: set=${setId} q=${activeId} option=${option}`);
+      } else {
+        console.log(`Duplicate vote ignored: ${token}`);
       }
-    });
+      json(res, 200, { ok: true });
+    } catch (err: any) {
+      console.error("Vote error:", err);
+      json(res, 400, { error: "Invalid JSON" });
+    }
     return;
   }
 
@@ -157,7 +372,9 @@ server.listen(PORT, () => {
 });
 
 process.on("SIGTERM", async () => {
-  for (const client of clients) client.end();
+  for (const [, setClients] of clients) {
+    for (const client of setClients) client.end();
+  }
   await subscriber.quit();
   await publisher.quit();
   server.close(() => process.exit(0));
