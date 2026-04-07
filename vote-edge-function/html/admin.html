@@ -8,32 +8,89 @@
 </head>
 <body>
   <div class="admin-wrap">
-    <div class="admin-header">
-      <div class="eyebrow">Control Panel</div>
-      <h1 id="admin-title">Vote Admin</h1>
+
+    <!-- Login screen -->
+    <div id="login-screen">
+      <div class="vote-card" style="max-width:400px;margin:15vh auto;">
+        <div class="eyebrow">Admin Login</div>
+        <h1 id="login-title" style="font-size:1.3rem;margin-bottom:1.5rem;">Enter access code</h1>
+        <form onsubmit="login(event)">
+          <input type="password" id="access-code" class="email-input" placeholder="Access code" required autocomplete="off" />
+          <button type="submit" class="join-btn" id="login-btn">Login</button>
+        </form>
+        <div class="vote-error" id="login-error"></div>
+      </div>
     </div>
-    <div id="question-label" style="color:var(--muted);font-family:var(--mono);font-size:0.8rem;margin-bottom:1.5rem;"></div>
-    <div class="totals-grid" id="totals-grid"></div>
-    <div class="vote-total-row">Total votes: <strong id="total">0</strong></div>
-    <div class="bars" id="bars-container"></div>
-    <div class="actions">
-      <button class="btn btn-refresh" onclick="fetchTotals()">↻ Refresh</button>
-      <button class="btn btn-clear" onclick="clearVotes()">✕ Clear all votes</button>
+
+    <!-- Admin panel -->
+    <div id="admin-panel" style="display:none">
+      <div class="admin-header">
+        <div class="eyebrow">Control Panel</div>
+        <h1 id="admin-title">Vote Admin</h1>
+      </div>
+      <div id="question-label" style="color:var(--muted);font-family:var(--mono);font-size:0.8rem;margin-bottom:1.5rem;"></div>
+      <div class="totals-grid" id="totals-grid"></div>
+      <div class="vote-total-row">Total votes: <strong id="total">0</strong></div>
+      <div class="bars" id="bars-container"></div>
+      <div class="actions">
+        <button class="btn btn-refresh" onclick="fetchTotals()">↻ Refresh</button>
+        <button class="btn btn-clear" onclick="clearVotes()">✕ Clear all votes</button>
+      </div>
+      <div class="status-msg" id="status"></div>
     </div>
-    <div class="status-msg" id="status"></div>
+
   </div>
   <script>
     const BASE='__BASE__';
     const ORIGIN='__ORIGIN_URL__';
-    const TOKEN='__INTERNAL_TOKEN__';
+    const INTERNAL_TOKEN='__INTERNAL_TOKEN__';
     const SET_ID='__SET_ID__';
+    let jwt = sessionStorage.getItem('admin_jwt_' + SET_ID);
     let options = [];
 
-    // Load active question and render UI
-    async function init() {
+    // If already logged in, go to panel
+    if (jwt) { showPanel(); }
+
+    async function login(e) {
+      e.preventDefault();
+      const code = document.getElementById('access-code').value;
+      const btn = document.getElementById('login-btn');
+      const err = document.getElementById('login-error');
+      btn.disabled = true;
+      err.style.display = 'none';
       try {
-        const res = await fetch(BASE + '/api/question?set=' + encodeURIComponent(SET_ID));
+        const res = await fetch(BASE + '/api/admin/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ setId: SET_ID, accessCode: code })
+        });
         const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Login failed');
+        jwt = data.jwt;
+        sessionStorage.setItem('admin_jwt_' + SET_ID, jwt);
+        showPanel();
+      } catch (ex) {
+        err.textContent = ex.message;
+        err.style.display = 'block';
+        btn.disabled = false;
+      }
+    }
+
+    async function showPanel() {
+      document.getElementById('login-screen').style.display = 'none';
+      document.getElementById('admin-panel').style.display = 'block';
+      await loadQuestion();
+      connectSSE();
+    }
+
+    async function loadQuestion() {
+      try {
+        const res = await fetch(BASE + '/api/question?set=' + encodeURIComponent(SET_ID), {
+          headers: { 'Authorization': 'Bearer ' + jwt }
+        });
+        if (res.status === 401) return handleExpired();
+        const data = await res.json();
+        if (data.name) document.getElementById('admin-title').textContent = data.name;
         if (data.question) {
           document.getElementById('question-label').textContent = data.question.label;
           options = data.question.options.map(o => o.key);
@@ -44,7 +101,6 @@
           document.getElementById('question-label').textContent = 'No active question';
         }
       } catch {}
-      connectSSE();
     }
 
     function renderGrid(opts) {
@@ -65,21 +121,21 @@
       options.forEach(o => {
         const count = totals[o] || 0;
         const pct = total > 0 ? Math.round(count / total * 100) : 0;
-        const countEl = document.getElementById('count-' + o);
-        if (countEl) countEl.textContent = count;
-        const pctEl = document.getElementById('pct-' + o);
-        if (pctEl) pctEl.textContent = pct + '%';
-        const barEl = document.getElementById('bar-' + o);
-        if (barEl) barEl.style.width = pct + '%';
-        const barCountEl = document.getElementById('bar-count-' + o);
-        if (barCountEl) barCountEl.textContent = count;
+        const el = (id) => document.getElementById(id);
+        if (el('count-' + o)) el('count-' + o).textContent = count;
+        if (el('pct-' + o)) el('pct-' + o).textContent = pct + '%';
+        if (el('bar-' + o)) el('bar-' + o).style.width = pct + '%';
+        if (el('bar-count-' + o)) el('bar-count-' + o).textContent = count;
       });
       document.getElementById('total').textContent = total;
     }
 
     async function fetchTotals() {
       try {
-        const res = await fetch(BASE + '/api/totals?set=' + encodeURIComponent(SET_ID));
+        const res = await fetch(BASE + '/api/totals?set=' + encodeURIComponent(SET_ID), {
+          headers: { 'Authorization': 'Bearer ' + jwt }
+        });
+        if (res.status === 401) return handleExpired();
         const data = await res.json();
         updateUI(data.totals || {}, data.total || 0);
         setStatus('Updated', 'ok');
@@ -91,9 +147,10 @@
       try {
         const res = await fetch(BASE + '/api/clear', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + jwt },
           body: JSON.stringify({ setId: SET_ID })
         });
+        if (res.status === 401) return handleExpired();
         const data = await res.json();
         const empty = {};
         options.forEach(o => empty[o] = 0);
@@ -109,8 +166,17 @@
       setTimeout(() => { el.textContent = ''; el.className = 'status-msg'; }, 3000);
     }
 
+    function handleExpired() {
+      jwt = null;
+      sessionStorage.removeItem('admin_jwt_' + SET_ID);
+      document.getElementById('admin-panel').style.display = 'none';
+      document.getElementById('login-screen').style.display = 'block';
+      document.getElementById('login-error').textContent = 'Session expired. Please login again.';
+      document.getElementById('login-error').style.display = 'block';
+    }
+
     function connectSSE() {
-      const es = new EventSource(ORIGIN + '/api/events?set=' + encodeURIComponent(SET_ID) + '&token=' + TOKEN);
+      const es = new EventSource(ORIGIN + '/api/events?set=' + encodeURIComponent(SET_ID) + '&token=' + INTERNAL_TOKEN);
       es.onmessage = (e) => {
         try {
           const ev = JSON.parse(e.data);
@@ -132,15 +198,13 @@
             updateUI(ev.totals, ev.total || 0);
             return;
           }
-          if (ev.totals) {
+          if (ev.totals && !ev.type) {
             updateUI(ev.totals, Object.values(ev.totals).reduce((a, b) => a + b, 0));
           }
         } catch {}
       };
       es.onerror = () => { es.close(); setTimeout(connectSSE, 3000); };
     }
-
-    init();
   </script>
 </body>
 </html>

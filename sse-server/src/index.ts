@@ -127,6 +127,29 @@ const server = http.createServer(async (req, res) => {
     res.end("ok"); return;
   }
 
+  // --- Admin/login ---
+  if (url === `${BASE}/admin/login` && req.method === "POST") {
+    try {
+      const body = JSON.parse(await readBody(req));
+      const { setId, accessCode } = body;
+      if (!setId) return json(res, 400, { error: "setId is required" });
+      if (!accessCode || typeof accessCode !== "string") return json(res, 400, { error: "accessCode is required" });
+
+      const questionSet = await getSet(setId);
+      if (!questionSet) return json(res, 404, { error: "Set not found" });
+
+      const hash = crypto.createHash("sha256").update(accessCode).digest("hex");
+      if (hash !== questionSet.accessCodeHash) return json(res, 403, { error: "Invalid access code" });
+
+      console.log(`Admin login for set ${setId}`);
+      json(res, 200, { ok: true, name: questionSet.name, questions: questionSet.questions });
+    } catch (err: any) {
+      console.error("Admin login error:", err);
+      json(res, 400, { error: err.message || "Invalid request" });
+    }
+    return;
+  }
+
   // --- Voter/register ---
   if (url === `${BASE}/voter/register` && req.method === "POST") {
     try {

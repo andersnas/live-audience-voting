@@ -59,6 +59,21 @@ async function hashToken(setId, email) {
   return base64url(hash).substring(0, 32);
 }
 
+async function requireAdmin(req) {
+  const authHeader = req.headers.get('authorization') || '';
+  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+  if (!token) return null;
+  const payload = await verifyJWT(token);
+  if (!payload || payload.role !== 'admin') return null;
+  return payload;
+}
+
+function unauthorized(msg = "Admin authorization required") {
+  return new Response(JSON.stringify({ error: msg }), {
+    status: 401, headers: { "content-type": "application/json", "access-control-allow-origin": "*" }
+  });
+}
+
 function internalFetch(url, options = {}) {
   return fetch(url, {
     ...options,
@@ -73,7 +88,7 @@ function getBase(req) {
   const path = new URL(req.url).pathname;
   const markers = [
     '/api/vote', '/api/clear', '/api/totals', '/api/events', '/api/health',
-    '/api/session/', '/api/question',
+    '/api/session/', '/api/question', '/api/admin/', '/api/voter/',
     '/admin/', '/admin', '/display/', '/display',
   ];
   for (const m of markers) {
@@ -239,15 +254,57 @@ router.all("*", async (req) => {
     }
   }
 
-  // Totals — forward ?set= query param
+  // Admin login — validates access code, issues admin JWT
+  if (path.endsWith('/api/admin/login') && req.method === 'POST') {
+    try {
+      const body = await req.json();
+      const { setId, accessCode } = body;
+      if (!setId || !accessCode) {
+        return new Response(JSON.stringify({ error: "setId and accessCode are required" }), {
+          status: 400, headers: { "content-type": "application/json", "access-control-allow-origin": "*" }
+        });
+      }
+
+      const upstream = await internalFetch(ORIGIN_URL + '/api/admin/login', {
+        method: 'POST',
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ setId, accessCode }),
+      });
+      const result = await upstream.json();
+      if (!result.ok) {
+        return new Response(JSON.stringify(result), {
+          status: upstream.status, headers: { "content-type": "application/json", "access-control-allow-origin": "*" }
+        });
+      }
+
+      const now = Math.floor(Date.now() / 1000);
+      const jwt = await signJWT({ sub: "admin", setId, role: "admin", iat: now, exp: now + SESSION_TTL });
+
+      return new Response(JSON.stringify({ jwt, name: result.name, questions: result.questions }), {
+        status: 200, headers: { "content-type": "application/json", "access-control-allow-origin": "*" }
+      });
+    } catch {
+      return new Response(JSON.stringify({ error: "Login failed" }), {
+        status: 502, headers: { "content-type": "application/json", "access-control-allow-origin": "*" }
+      });
+    }
+  }
+
+  // Totals — requires voter or admin JWT
   if (path.endsWith('/api/totals') && req.method === 'GET') {
+    const authHeader = req.headers.get('authorization') || '';
+    const jwtToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+    if (!jwtToken) return unauthorized("Authorization required");
+    const payload = await verifyJWT(jwtToken);
+    if (!payload) return unauthorized("Invalid or expired JWT");
     const setId = url.searchParams.get('set');
     const qs = setId ? `?set=${encodeURIComponent(setId)}` : '';
     return proxyJSON(ORIGIN_URL + '/api/totals' + qs);
   }
 
-  // Clear — forward JSON body
+  // Clear — requires admin JWT
   if (path.endsWith('/api/clear') && req.method === 'POST') {
+    if (!await requireAdmin(req)) return unauthorized();
     const body = await req.text();
     return proxyJSON(ORIGIN_URL + '/api/clear', {
       method: 'POST',
@@ -256,8 +313,10 @@ router.all("*", async (req) => {
     });
   }
 
-  // Session create
+  // Session create — requires admin JWT
   if (path.endsWith('/api/session/create') && req.method === 'POST') {
+    // Note: no setId-scoped JWT yet for create — just check for any admin JWT
+    if (!await requireAdmin(req)) return unauthorized();
     const body = await req.text();
     return proxyJSON(ORIGIN_URL + '/api/session/create', {
       method: 'POST',
@@ -266,8 +325,9 @@ router.all("*", async (req) => {
     });
   }
 
-  // Session update
+  // Session update — requires admin JWT
   if (path.endsWith('/api/session/update') && req.method === 'POST') {
+    if (!await requireAdmin(req)) return unauthorized();
     const body = await req.text();
     return proxyJSON(ORIGIN_URL + '/api/session/update', {
       method: 'POST',
@@ -276,8 +336,9 @@ router.all("*", async (req) => {
     });
   }
 
-  // Session delete
+  // Session delete — requires admin JWT
   if (path.endsWith('/api/session/delete') && req.method === 'POST') {
+    if (!await requireAdmin(req)) return unauthorized();
     const body = await req.text();
     return proxyJSON(ORIGIN_URL + '/api/session/delete', {
       method: 'POST',
@@ -302,8 +363,9 @@ router.all("*", async (req) => {
     return proxyJSON(ORIGIN_URL + '/api/question' + qs);
   }
 
-  // Question activate
+  // Question activate — requires admin JWT
   if (path.endsWith('/api/question/activate') && req.method === 'POST') {
+    if (!await requireAdmin(req)) return unauthorized();
     const body = await req.text();
     return proxyJSON(ORIGIN_URL + '/api/question/activate', {
       method: 'POST',
