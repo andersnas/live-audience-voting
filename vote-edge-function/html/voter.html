@@ -33,14 +33,21 @@
       <div id="waiting-screen" style="display:none">
         <div class="eyebrow">Live Poll</div>
         <h1>Waiting for the next question...</h1>
+        <div class="pulse-indicator"></div>
         <p class="waiting-hint">The presenter will activate a question shortly.</p>
       </div>
 
-      <!-- Confirmation -->
-      <div class="confirm-wrap" id="confirmation" style="display:none">
-        <div class="confirm-icon">✓</div>
-        <p>You voted for</p>
-        <strong id="voted-option"></strong>
+      <!-- Voted confirmation + waiting for next -->
+      <div id="voted-screen" style="display:none">
+        <div class="confirm-wrap">
+          <div class="confirm-icon">✓</div>
+          <p>You voted for</p>
+          <strong id="voted-option"></strong>
+          <div class="voted-waiting">
+            <div class="pulse-indicator pulse-small"></div>
+            <p class="waiting-hint">Waiting for the next question...</p>
+          </div>
+        </div>
       </div>
 
     </div>
@@ -49,12 +56,52 @@
     const BASE = '__BASE__';
     const SET_ID = '__SET_ID__';
     let jwt = sessionStorage.getItem('jwt_' + SET_ID);
+    let currentQuestionId = null;
+    let pollTimer = null;
 
-    // If already registered, go straight to vote/waiting
+    function votedKey(qId) { return 'voted_' + SET_ID + '_' + qId; }
+
+    // --- State machine ---
+
+    function showScreen(id) {
+      ['email-screen', 'vote-screen', 'waiting-screen', 'voted-screen'].forEach(s => {
+        document.getElementById(s).style.display = s === id ? 'block' : 'none';
+      });
+    }
+
+    function applyState(data) {
+      if (!data || !data.question) {
+        // No active question → WAITING
+        currentQuestionId = null;
+        showScreen('waiting-screen');
+        return;
+      }
+
+      const qId = data.question.id;
+      const votedLabel = sessionStorage.getItem(votedKey(qId));
+
+      if (votedLabel) {
+        // Already voted on this question → VOTED
+        currentQuestionId = qId;
+        document.getElementById('voted-option').textContent = votedLabel;
+        showScreen('voted-screen');
+      } else {
+        // New question, not voted → VOTE
+        currentQuestionId = qId;
+        renderQuestion(data.question);
+        showScreen('vote-screen');
+      }
+    }
+
+    // --- Init ---
+
     if (jwt) {
       showScreen('waiting-screen');
-      fetchQuestion();
+      fetchAndApply();
+      startPolling();
     }
+
+    // --- Registration ---
 
     async function register(e) {
       e.preventDefault();
@@ -73,12 +120,8 @@
         if (!res.ok) throw new Error(data.error || 'Registration failed');
         jwt = data.jwt;
         sessionStorage.setItem('jwt_' + SET_ID, jwt);
-        if (data.question) {
-          renderQuestion(data.question);
-          showScreen('vote-screen');
-        } else {
-          showScreen('waiting-screen');
-        }
+        applyState(data);
+        startPolling();
       } catch (ex) {
         err.textContent = ex.message;
         err.style.display = 'block';
@@ -86,20 +129,25 @@
       }
     }
 
-    async function fetchQuestion() {
+    // --- Polling ---
+
+    function startPolling() {
+      if (pollTimer) return;
+      pollTimer = setInterval(fetchAndApply, 3000);
+    }
+
+    async function fetchAndApply() {
       try {
         const res = await fetch(BASE + '/api/question?set=' + encodeURIComponent(SET_ID), {
           headers: { 'Authorization': 'Bearer ' + jwt }
         });
+        if (res.status === 401) return; // JWT expired, stay on current screen
         const data = await res.json();
-        if (data.question) {
-          renderQuestion(data.question);
-          showScreen('vote-screen');
-        } else {
-          showScreen('waiting-screen');
-        }
+        applyState(data);
       } catch {}
     }
+
+    // --- Render + Vote ---
 
     function renderQuestion(question) {
       document.getElementById('question-text').textContent = question.label;
@@ -126,8 +174,9 @@
         });
         const data = await res.json();
         if (res.ok) {
+          sessionStorage.setItem(votedKey(currentQuestionId), label);
           document.getElementById('voted-option').textContent = label;
-          showScreen('confirmation');
+          showScreen('voted-screen');
         } else {
           throw new Error(data.error || 'Vote failed');
         }
@@ -137,12 +186,6 @@
         err.style.display = 'block';
         document.querySelectorAll('.opt-btn').forEach(b => b.disabled = false);
       }
-    }
-
-    function showScreen(id) {
-      ['email-screen', 'vote-screen', 'waiting-screen', 'confirmation'].forEach(s => {
-        document.getElementById(s).style.display = s === id ? 'block' : 'none';
-      });
     }
   </script>
 </body>
