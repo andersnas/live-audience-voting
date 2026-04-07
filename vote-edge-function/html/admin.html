@@ -38,6 +38,7 @@
         <h1 id="admin-title">Vote Admin</h1>
         <div class="actions" style="margin-top:0.5rem;">
           <button class="btn btn-deactivate" onclick="copyVoterURL()">🔗 Copy Voter URL</button>
+          <button class="btn btn-deactivate" onclick="openDisplay()">📺 Open Display</button>
           <button class="btn btn-deactivate" onclick="logout()">⇄ Switch Session</button>
         </div>
         <div class="set-card-id" id="voter-url" style="margin-top:0.5rem;"></div>
@@ -178,6 +179,10 @@
 
     function getVoterURL() {
       return window.location.origin + BASE + '/?set=' + SET_ID;
+    }
+
+    function openDisplay() {
+      window.open(window.location.origin + BASE + '/display/?set=' + SET_ID, '_blank');
     }
 
     async function copyVoterURL() {
