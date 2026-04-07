@@ -3,6 +3,8 @@ import { SSE_SERVER_URL, ORIGIN_URL } from './config.js';
 import voterHTML from '../html/voter.html';
 import adminHTML from '../html/admin.html';
 import displayHTML from '../html/display.html';
+import stylesCSS from '../html/styles.css';
+
 
 const router = AutoRouter();
 const VALID_OPTIONS = ["A", "B", "C", "D"];
@@ -26,24 +28,38 @@ function getBase(req) {
 
 function voterUI(base) {
   return new Response(
-    voterHTML.replace('__BASE__', base),
+    voterHTML.replaceAll('__BASE__', base),
     { status: 200, headers: { "content-type": "text/html; charset=utf-8" } }
   );
 }
 
-function adminUI() {
+
+function adminUI(base) {
   return new Response(
-    adminHTML.replace('__ORIGIN_URL__', ORIGIN_URL),
+    adminHTML
+      .replace('__BASE__', base)
+      .replace('__ORIGIN_URL__', ORIGIN_URL),
     { status: 200, headers: { "content-type": "text/html; charset=utf-8" } }
   );
 }
 
 function displayUI() {
   const sseUrl = SSE_SERVER_URL.replace('/api/vote', '/api/events');
+  const base = '/voterapp'; // or derive from config
   return new Response(
-    displayHTML.replace('"__SSE_URL__"', JSON.stringify(sseUrl)),
+    displayHTML
+      .replace('"__SSE_URL__"', JSON.stringify(sseUrl))
+      .replace('__STYLES_URL__', base),
     { status: 200, headers: { "content-type": "text/html; charset=utf-8" } }
   );
+}
+
+
+function serveCSS() {
+  return new Response(stylesCSS, {
+    status: 200,
+    headers: { "content-type": "text/css; charset=utf-8" }
+  });
 }
 
 async function handleVote(req) {
@@ -82,8 +98,9 @@ router.all("*", async (req) => {
 
   if (path.endsWith('/api/vote') && req.method === 'POST') return handleVote(req);
   if (path.endsWith('/api/health')) return new Response('ok', { status: 200, headers: { "content-type": "text/plain" } });
-  if (path.endsWith('/admin') || path.endsWith('/admin/')) return adminUI();
+  if (path.endsWith('/admin') || path.endsWith('/admin/')) return adminUI(base);
   if (path.endsWith('/display') || path.endsWith('/display/')) return displayUI();
+  if (path.endsWith('/styles.css')) return serveCSS();
   return voterUI(base);
 });
 
