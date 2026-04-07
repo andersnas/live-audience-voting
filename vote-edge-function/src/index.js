@@ -7,7 +7,6 @@ import stylesCSS from '../html/styles.css';
 
 
 const router = AutoRouter();
-const VALID_OPTIONS = ["A", "B", "C", "D"];
 
 function internalFetch(url, options = {}) {
   return fetch(url, {
@@ -29,11 +28,31 @@ function getToken(req) {
 
 function getBase(req) {
   const path = new URL(req.url).pathname;
-  const markers = ['/api/vote', '/api/clear', '/api/totals', '/api/events', '/api/health', '/admin/', '/admin'];
+  const markers = [
+    '/api/vote', '/api/clear', '/api/totals', '/api/events', '/api/health',
+    '/api/session/', '/api/question',
+    '/admin/', '/admin', '/display/', '/display',
+  ];
   for (const m of markers) {
     if (path.includes(m)) return path.substring(0, path.indexOf(m));
   }
   return path.replace(/\/$/, '') || '';
+}
+
+// Generic JSON proxy: forwards request to origin with internal token
+async function proxyJSON(upstreamUrl, options = {}) {
+  try {
+    const upstream = await internalFetch(upstreamUrl, options);
+    const data = await upstream.text();
+    return new Response(data, {
+      status: upstream.status,
+      headers: { "content-type": "application/json", "access-control-allow-origin": "*" }
+    });
+  } catch {
+    return new Response(JSON.stringify({ error: "Upstream error" }), {
+      status: 502, headers: { "content-type": "application/json" }
+    });
+  }
 }
 
 function voterUI(base) {
@@ -42,7 +61,6 @@ function voterUI(base) {
     { status: 200, headers: { "content-type": "text/html; charset=utf-8" } }
   );
 }
-
 
 function adminUI(base) {
   return new Response(
@@ -64,7 +82,6 @@ function displayUI(base) {
   );
 }
 
-
 function serveCSS() {
   return new Response(stylesCSS, {
     status: 200,
@@ -76,21 +93,17 @@ async function handleVote(req) {
   let body;
   try { body = await req.json(); }
   catch { return new Response(JSON.stringify({ error: "Invalid JSON" }), { status: 400, headers: { "content-type": "application/json" } }); }
-  if (!body.option || !VALID_OPTIONS.includes(body.option)) {
-    return new Response(JSON.stringify({ error: "Invalid option" }), { status: 400, headers: { "content-type": "application/json" } });
-  }
+
   const token = body.token || getToken(req);
   try {
     const response = await fetch(SSE_SERVER_URL, {
       method: "POST",
-      headers: { "content-type": "application/json",
-       "x-internal-token": INTERNAL_TOKEN, 
-       },
-      body: JSON.stringify({ option: body.option, token }),
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ option: body.option, token, setId: body.setId }),
     });
     const result = await response.json();
     return new Response(JSON.stringify(result), {
-      status: 200,
+      status: response.status,
       headers: { "content-type": "application/json", "access-control-allow-origin": "*" }
     });
   } catch {
@@ -108,39 +121,55 @@ router.all("*", async (req) => {
   const path = url.pathname;
   const base = getBase(req);
 
+  // --- API routes ---
   if (path.endsWith('/api/vote') && req.method === 'POST') return handleVote(req);
   if (path.endsWith('/api/health')) return new Response('ok', { status: 200, headers: { "content-type": "text/plain" } });
 
+  // Totals — forward ?set= query param
   if (path.endsWith('/api/totals') && req.method === 'GET') {
-    try {
-      const upstream = await internalFetch(ORIGIN_URL + '/api/totals');
-      const data = await upstream.text();
-      return new Response(data, {
-        status: upstream.status,
-        headers: { "content-type": "application/json", "access-control-allow-origin": "*" }
-      });
-    } catch {
-      return new Response(JSON.stringify({ error: "Upstream error" }), {
-        status: 502, headers: { "content-type": "application/json" }
-      });
-    }
+    const setId = url.searchParams.get('set');
+    const qs = setId ? `?set=${encodeURIComponent(setId)}` : '';
+    return proxyJSON(ORIGIN_URL + '/api/totals' + qs);
   }
 
+  // Clear — forward JSON body
   if (path.endsWith('/api/clear') && req.method === 'POST') {
-    try {
-      const upstream = await internalFetch(ORIGIN_URL + '/api/clear', { method: 'POST' });
-      const data = await upstream.text();
-      return new Response(data, {
-        status: upstream.status,
-        headers: { "content-type": "application/json", "access-control-allow-origin": "*" }
-      });
-    } catch {
-      return new Response(JSON.stringify({ error: "Upstream error" }), {
-        status: 502, headers: { "content-type": "application/json" }
-      });
-    }
+    const body = await req.text();
+    return proxyJSON(ORIGIN_URL + '/api/clear', {
+      method: 'POST',
+      headers: { "content-type": "application/json" },
+      body,
+    });
   }
 
+  // Session create
+  if (path.endsWith('/api/session/create') && req.method === 'POST') {
+    const body = await req.text();
+    return proxyJSON(ORIGIN_URL + '/api/session/create', {
+      method: 'POST',
+      headers: { "content-type": "application/json" },
+      body,
+    });
+  }
+
+  // Question (get active)
+  if (path.endsWith('/api/question') && !path.includes('/activate') && req.method === 'GET') {
+    const setId = url.searchParams.get('set');
+    const qs = setId ? `?set=${encodeURIComponent(setId)}` : '';
+    return proxyJSON(ORIGIN_URL + '/api/question' + qs);
+  }
+
+  // Question activate
+  if (path.endsWith('/api/question/activate') && req.method === 'POST') {
+    const body = await req.text();
+    return proxyJSON(ORIGIN_URL + '/api/question/activate', {
+      method: 'POST',
+      headers: { "content-type": "application/json" },
+      body,
+    });
+  }
+
+  // --- UI routes ---
   if (path.endsWith('/admin') || path.endsWith('/admin/')) return adminUI(base);
   if (path.endsWith('/display') || path.endsWith('/display/')) return displayUI(base);
   if (path.endsWith('/styles.css')) return serveCSS();
