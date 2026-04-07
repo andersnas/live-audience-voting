@@ -9,21 +9,105 @@
 <body>
   <div class="display-wrap">
     <div class="eyebrow">Live Results</div>
-    <h1>Which backend language do you use?</h1>
+    <h1 id="question-text">Waiting for question...</h1>
     <div class="display-chart"><canvas id="chart"></canvas></div>
     <div class="display-total" id="total">0 votes</div>
     <div class="display-status" id="status">Connecting...</div>
   </div>
   <script>
-    const BASE="__BASE__";const ORIGIN="__ORIGIN_URL__";const TOKEN="__INTERNAL_TOKEN__";
-    const OPTIONS=["A","B","C","D"];
-    const LABELS=["Java","C#","NodeJS","Other"];
-    const COLORS=["#a64c7a","#04cd63","#00a3eb","#7a7cff"];
-    const tally={A:0,B:0,C:0,D:0};
-    const chart=new Chart(document.getElementById("chart").getContext("2d"),{type:"bar",data:{labels:LABELS,datasets:[{data:OPTIONS.map(o=>tally[o]),backgroundColor:COLORS,borderRadius:12,borderSkipped:false}]},options:{responsive:true,maintainAspectRatio:false,animation:{duration:400,easing:'easeOutQuart'},plugins:{legend:{display:false}},scales:{x:{grid:{color:"rgba(255,255,255,0.06)"},ticks:{color:"rgba(255,255,255,0.7)",font:{size:20,weight:'700',family:'DM Sans'}}},y:{beginAtZero:true,grid:{color:"rgba(255,255,255,0.06)"},ticks:{color:"rgba(255,255,255,0.4)",precision:0,font:{family:'DM Mono'}}}}}});
-    function updateChart(){chart.data.datasets[0].data=OPTIONS.map(o=>tally[o]);chart.update();const total=Object.values(tally).reduce((a,b)=>a+b,0);document.getElementById("total").textContent=`${total} vote${total!==1?"s":""}`;}
-    const statusEl=document.getElementById("status");
-    function connect(){const es=new EventSource(ORIGIN+'/api/events?token='+TOKEN);es.onopen=()=>{statusEl.textContent="● Live";statusEl.className="display-status connected";};es.onmessage=(e)=>{try{const ev=JSON.parse(e.data);if(ev.reset){tally.A=0;tally.B=0;tally.C=0;tally.D=0;}else if(ev.totals){Object.assign(tally,ev.totals);}else if(ev.option&&tally.hasOwnProperty(ev.option)){tally[ev.option]++;}updateChart();}catch{}};es.onerror=()=>{statusEl.textContent="● Reconnecting...";statusEl.className="display-status error";es.close();setTimeout(connect,3000);};}
+    const BASE="__BASE__";
+    const ORIGIN="__ORIGIN_URL__";
+    const TOKEN="__INTERNAL_TOKEN__";
+    const SET_ID="__SET_ID__";
+    const COLORS=["#a64c7a","#04cd63","#00a3eb","#7a7cff","#f5a623","#e74c3c","#1abc9c","#9b59b6"];
+
+    let options = [];
+    let labels = [];
+    let tally = {};
+    let chart = null;
+
+    function initChart() {
+      const ctx = document.getElementById("chart").getContext("2d");
+      if (chart) chart.destroy();
+      chart = new Chart(ctx, {
+        type: "bar",
+        data: {
+          labels: labels,
+          datasets: [{
+            data: options.map(o => tally[o] || 0),
+            backgroundColor: options.map((_, i) => COLORS[i % COLORS.length]),
+            borderRadius: 12,
+            borderSkipped: false
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          animation: { duration: 400, easing: 'easeOutQuart' },
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { grid: { color: "rgba(255,255,255,0.06)" }, ticks: { color: "rgba(255,255,255,0.7)", font: { size: 20, weight: '700', family: 'DM Sans' } } },
+            y: { beginAtZero: true, grid: { color: "rgba(255,255,255,0.06)" }, ticks: { color: "rgba(255,255,255,0.4)", precision: 0, font: { family: 'DM Mono' } } }
+          }
+        }
+      });
+    }
+
+    function updateChart() {
+      if (!chart) return;
+      chart.data.datasets[0].data = options.map(o => tally[o] || 0);
+      chart.update();
+      const total = Object.values(tally).reduce((a, b) => a + b, 0);
+      document.getElementById("total").textContent = `${total} vote${total !== 1 ? "s" : ""}`;
+    }
+
+    function setQuestion(question, newTotals) {
+      document.getElementById("question-text").textContent = question.label;
+      options = question.options.map(o => o.key);
+      labels = question.options.map(o => o.label);
+      tally = {};
+      options.forEach(o => tally[o] = (newTotals && newTotals[o]) || 0);
+      initChart();
+      updateChart();
+    }
+
+    const statusEl = document.getElementById("status");
+
+    function connect() {
+      const es = new EventSource(ORIGIN + '/api/events?set=' + encodeURIComponent(SET_ID) + '&token=' + TOKEN);
+      es.onopen = () => { statusEl.textContent = "● Live"; statusEl.className = "display-status connected"; };
+      es.onmessage = (e) => {
+        try {
+          const ev = JSON.parse(e.data);
+          if (ev.type === 'activate' && ev.question) {
+            setQuestion(ev.question, ev.totals);
+            return;
+          }
+          if (ev.type === 'reset') {
+            options.forEach(o => tally[o] = 0);
+            updateChart();
+            return;
+          }
+          if (ev.type === 'vote' && ev.totals) {
+            options.forEach(o => tally[o] = ev.totals[o] || 0);
+            updateChart();
+            return;
+          }
+          // Legacy: initial totals on connect
+          if (ev.totals && !ev.type) {
+            options.forEach(o => tally[o] = ev.totals[o] || 0);
+            updateChart();
+          }
+        } catch {}
+      };
+      es.onerror = () => {
+        statusEl.textContent = "● Reconnecting...";
+        statusEl.className = "display-status error";
+        es.close();
+        setTimeout(connect, 3000);
+      };
+    }
+
     connect();
   </script>
 </body>

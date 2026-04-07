@@ -7,6 +7,57 @@ import stylesCSS from '../html/styles.css';
 
 
 const router = AutoRouter();
+const SESSION_TTL = 3600; // 1 hour JWT expiry
+
+// --- JWT helpers (WebCrypto HMAC-SHA256) ---
+
+function base64url(buf) {
+  return btoa(String.fromCharCode(...new Uint8Array(buf)))
+    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function base64urlDecode(str) {
+  str = str.replace(/-/g, '+').replace(/_/g, '/');
+  while (str.length % 4) str += '=';
+  const bin = atob(str);
+  return Uint8Array.from(bin, c => c.charCodeAt(0));
+}
+
+async function getSigningKey() {
+  return crypto.subtle.importKey(
+    'raw', new TextEncoder().encode(INTERNAL_TOKEN),
+    { name: 'HMAC', hash: 'SHA-256' }, false, ['sign', 'verify']
+  );
+}
+
+async function signJWT(payload) {
+  const header = base64url(new TextEncoder().encode(JSON.stringify({ alg: 'HS256', typ: 'JWT' })));
+  const body = base64url(new TextEncoder().encode(JSON.stringify(payload)));
+  const key = await getSigningKey();
+  const sig = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(`${header}.${body}`));
+  return `${header}.${body}.${base64url(sig)}`;
+}
+
+async function verifyJWT(jwt) {
+  const parts = jwt.split('.');
+  if (parts.length !== 3) return null;
+  const key = await getSigningKey();
+  const valid = await crypto.subtle.verify(
+    'HMAC', key,
+    base64urlDecode(parts[2]),
+    new TextEncoder().encode(`${parts[0]}.${parts[1]}`)
+  );
+  if (!valid) return null;
+  const payload = JSON.parse(new TextDecoder().decode(base64urlDecode(parts[1])));
+  if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) return null;
+  return payload;
+}
+
+async function hashToken(setId, email) {
+  const data = new TextEncoder().encode(`${setId}:${email.toLowerCase()}`);
+  const hash = await crypto.subtle.digest('SHA-256', data);
+  return base64url(hash).substring(0, 32);
+}
 
 function internalFetch(url, options = {}) {
   return fetch(url, {
@@ -16,14 +67,6 @@ function internalFetch(url, options = {}) {
       "x-internal-token": INTERNAL_TOKEN,
     },
   });
-}
-
-function getToken(req) {
-  const ip = req.headers.get("true-client-ip") ??
-             req.headers.get("x-forwarded-for") ??
-             "unknown";
-  const ua = req.headers.get("user-agent") ?? "unknown";
-  return btoa(`${ip}:${ua}`).replace(/[^a-zA-Z0-9]/g, '').substring(0, 32);
 }
 
 function getBase(req) {
@@ -55,29 +98,33 @@ async function proxyJSON(upstreamUrl, options = {}) {
   }
 }
 
-function voterUI(base) {
+function voterUI(base, setId) {
   return new Response(
-    voterHTML.replaceAll('__BASE__', base),
+    voterHTML
+      .replaceAll('__BASE__', base)
+      .replaceAll('__SET_ID__', setId || ''),
     { status: 200, headers: { "content-type": "text/html; charset=utf-8" } }
   );
 }
 
-function adminUI(base) {
+function adminUI(base, setId) {
   return new Response(
     adminHTML
       .replaceAll('__BASE__', base)
       .replaceAll('__ORIGIN_URL__', ORIGIN_URL)
-      .replaceAll('__INTERNAL_TOKEN__', INTERNAL_TOKEN),
+      .replaceAll('__INTERNAL_TOKEN__', INTERNAL_TOKEN)
+      .replaceAll('__SET_ID__', setId || ''),
     { status: 200, headers: { "content-type": "text/html; charset=utf-8" } }
   );
 }
 
-function displayUI(base) {
+function displayUI(base, setId) {
   return new Response(
     displayHTML
       .replaceAll('__BASE__', base)
       .replaceAll('__ORIGIN_URL__', ORIGIN_URL)
-      .replaceAll('__INTERNAL_TOKEN__', INTERNAL_TOKEN),
+      .replaceAll('__INTERNAL_TOKEN__', INTERNAL_TOKEN)
+      .replaceAll('__SET_ID__', setId || ''),
     { status: 200, headers: { "content-type": "text/html; charset=utf-8" } }
   );
 }
@@ -92,14 +139,28 @@ function serveCSS() {
 async function handleVote(req) {
   let body;
   try { body = await req.json(); }
-  catch { return new Response(JSON.stringify({ error: "Invalid JSON" }), { status: 400, headers: { "content-type": "application/json" } }); }
+  catch { return new Response(JSON.stringify({ error: "Invalid JSON" }), { status: 400, headers: { "content-type": "application/json", "access-control-allow-origin": "*" } }); }
 
-  const token = body.token || getToken(req);
+  const authHeader = req.headers.get('authorization') || '';
+  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+  if (!token) {
+    return new Response(JSON.stringify({ error: "Authorization header required" }), {
+      status: 401, headers: { "content-type": "application/json", "access-control-allow-origin": "*" }
+    });
+  }
+
+  const payload = await verifyJWT(token);
+  if (!payload) {
+    return new Response(JSON.stringify({ error: "Invalid or expired JWT" }), {
+      status: 401, headers: { "content-type": "application/json", "access-control-allow-origin": "*" }
+    });
+  }
+
   try {
     const response = await fetch(SSE_SERVER_URL, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ option: body.option, token, setId: body.setId }),
+      body: JSON.stringify({ option: body.option, token: payload.token, setId: payload.setId }),
     });
     const result = await response.json();
     return new Response(JSON.stringify(result), {
@@ -107,13 +168,13 @@ async function handleVote(req) {
       headers: { "content-type": "application/json", "access-control-allow-origin": "*" }
     });
   } catch {
-    return new Response(JSON.stringify({ error: "Upstream error" }), { status: 502, headers: { "content-type": "application/json" } });
+    return new Response(JSON.stringify({ error: "Upstream error" }), { status: 502, headers: { "content-type": "application/json", "access-control-allow-origin": "*" } });
   }
 }
 
 router.options("*", () => new Response(null, {
   status: 204,
-  headers: { "access-control-allow-origin": "*", "access-control-allow-methods": "POST, GET, OPTIONS", "access-control-allow-headers": "content-type" }
+  headers: { "access-control-allow-origin": "*", "access-control-allow-methods": "POST, GET, OPTIONS", "access-control-allow-headers": "content-type, authorization" }
 }));
 
 router.all("*", async (req) => {
@@ -124,6 +185,50 @@ router.all("*", async (req) => {
   // --- API routes ---
   if (path.endsWith('/api/vote') && req.method === 'POST') return handleVote(req);
   if (path.endsWith('/api/health')) return new Response('ok', { status: 200, headers: { "content-type": "text/plain" } });
+
+  // Voter register — edge function generates JWT
+  if (path.endsWith('/api/voter/register') && req.method === 'POST') {
+    try {
+      const body = await req.json();
+      const { email, setId } = body;
+      if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        return new Response(JSON.stringify({ error: "Valid email is required" }), {
+          status: 400, headers: { "content-type": "application/json", "access-control-allow-origin": "*" }
+        });
+      }
+      if (!setId) {
+        return new Response(JSON.stringify({ error: "setId is required" }), {
+          status: 400, headers: { "content-type": "application/json", "access-control-allow-origin": "*" }
+        });
+      }
+
+      // Register email on SSE server
+      const upstream = await internalFetch(ORIGIN_URL + '/api/voter/register', {
+        method: 'POST',
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email, setId }),
+      });
+      const result = await upstream.json();
+      if (!result.ok) {
+        return new Response(JSON.stringify(result), {
+          status: upstream.status, headers: { "content-type": "application/json", "access-control-allow-origin": "*" }
+        });
+      }
+
+      // Generate JWT
+      const token = await hashToken(setId, email);
+      const now = Math.floor(Date.now() / 1000);
+      const jwt = await signJWT({ sub: email.toLowerCase(), setId, token, iat: now, exp: now + SESSION_TTL });
+
+      return new Response(JSON.stringify({ jwt, question: result.question, totals: result.totals, total: result.total }), {
+        status: 200, headers: { "content-type": "application/json", "access-control-allow-origin": "*" }
+      });
+    } catch {
+      return new Response(JSON.stringify({ error: "Registration failed" }), {
+        status: 502, headers: { "content-type": "application/json", "access-control-allow-origin": "*" }
+      });
+    }
+  }
 
   // Totals — forward ?set= query param
   if (path.endsWith('/api/totals') && req.method === 'GET') {
@@ -190,10 +295,10 @@ router.all("*", async (req) => {
   }
 
   // --- UI routes ---
-  if (path.endsWith('/admin') || path.endsWith('/admin/')) return adminUI(base);
-  if (path.endsWith('/display') || path.endsWith('/display/')) return displayUI(base);
+  if (path.endsWith('/admin') || path.endsWith('/admin/')) return adminUI(base, url.searchParams.get('set'));
+  if (path.endsWith('/display') || path.endsWith('/display/')) return displayUI(base, url.searchParams.get('set'));
   if (path.endsWith('/styles.css')) return serveCSS();
-  return voterUI(base);
+  return voterUI(base, url.searchParams.get('set'));
 });
 
 addEventListener('fetch', (event) => {

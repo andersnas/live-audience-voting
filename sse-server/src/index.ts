@@ -127,6 +127,38 @@ const server = http.createServer(async (req, res) => {
     res.end("ok"); return;
   }
 
+  // --- Voter/register ---
+  if (url === `${BASE}/voter/register` && req.method === "POST") {
+    try {
+      const body = JSON.parse(await readBody(req));
+      const { email, setId } = body;
+      if (!email || typeof email !== "string") return json(res, 400, { error: "email is required" });
+      if (!setId) return json(res, 400, { error: "setId is required" });
+
+      const questionSet = await getSet(setId);
+      if (!questionSet) return json(res, 404, { error: "Set not found" });
+
+      await publisher.sadd(`set:${setId}:voters`, email.toLowerCase());
+
+      const activeId = await getActiveQuestionId(setId);
+      let question = null;
+      let totals: Record<string, number> = {};
+      let total = 0;
+      if (activeId) {
+        question = questionSet.questions.find(q => q.id === activeId) || null;
+        totals = await getTotals(setId, activeId);
+        total = Object.values(totals).reduce((a, b) => a + b, 0);
+      }
+
+      console.log(`Voter registered: ${email} for set ${setId}`);
+      json(res, 200, { ok: true, name: questionSet.name, question, totals, total });
+    } catch (err: any) {
+      console.error("Voter register error:", err);
+      json(res, 400, { error: err.message || "Invalid request" });
+    }
+    return;
+  }
+
   // --- Session/create ---
   if (url === `${BASE}/session/create` && req.method === "POST") {
     try {
@@ -249,14 +281,14 @@ const server = http.createServer(async (req, res) => {
     if (!questionSet) return json(res, 404, { error: "Set not found" });
 
     const activeId = await getActiveQuestionId(setId);
-    if (!activeId) return json(res, 200, { setId, active: null });
+    if (!activeId) return json(res, 200, { setId, name: questionSet.name, active: null });
 
     const question = questionSet.questions.find(q => q.id === activeId);
-    if (!question) return json(res, 200, { setId, active: null });
+    if (!question) return json(res, 200, { setId, name: questionSet.name, active: null });
 
     const totals = await getTotals(setId, activeId);
     const total = Object.values(totals).reduce((a, b) => a + b, 0);
-    json(res, 200, { setId, question, totals, total });
+    json(res, 200, { setId, name: questionSet.name, question, totals, total });
     return;
   }
 

@@ -123,6 +123,45 @@ body {
   display: none;
 }
 
+.email-input {
+  width: 100%;
+  padding: 1rem 1.25rem;
+  font-family: var(--font);
+  font-size: 1rem;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  outline: none;
+  margin-bottom: 1rem;
+  transition: border-color 0.15s;
+}
+.email-input:focus { border-color: var(--btn-c); }
+.email-input::placeholder { color: var(--muted); }
+
+.join-btn {
+  width: 100%;
+  padding: 1rem;
+  font-family: var(--font);
+  font-size: 1rem;
+  font-weight: 700;
+  border: none;
+  border-radius: var(--radius);
+  background: var(--btn-c);
+  color: #fff;
+  cursor: pointer;
+  transition: opacity 0.15s, transform 0.1s;
+}
+.join-btn:hover { opacity: 0.85; }
+.join-btn:active { transform: scale(0.97); }
+.join-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+.waiting-hint {
+  color: var(--muted);
+  font-size: 0.9rem;
+  margin-top: 0.75rem;
+}
+
 .confirm-wrap { text-align: center; }
 .confirm-icon {
   width: 72px; height: 72px;

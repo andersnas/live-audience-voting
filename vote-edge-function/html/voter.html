@@ -9,42 +9,149 @@
 <body>
   <div class="vote-wrap">
     <div class="vote-card">
-      <div id="vote-screen">
+
+      <!-- Email registration screen -->
+      <div id="email-screen">
         <div class="eyebrow">Live Poll</div>
-        <h1 id="question-text">Which backend language do you use?</h1>
-        <div class="options">
-          <button class="opt-btn" data-option="A" onclick="vote('A')"><span class="btn-key">A</span><span id="label-A">Java</span></button>
-          <button class="opt-btn" data-option="B" onclick="vote('B')"><span class="btn-key">B</span><span id="label-B">C#</span></button>
-          <button class="opt-btn" data-option="C" onclick="vote('C')"><span class="btn-key">C</span><span id="label-C">NodeJS</span></button>
-          <button class="opt-btn" data-option="D" onclick="vote('D')"><span class="btn-key">D</span><span id="label-D">Other</span></button>
-        </div>
-        <div class="vote-error" id="error">Something went wrong. Please try again.</div>
+        <h1 id="set-name">Enter your email to join</h1>
+        <form onsubmit="register(event)">
+          <input type="email" id="email-input" class="email-input" placeholder="you@example.com" required autocomplete="email" />
+          <button type="submit" class="join-btn" id="join-btn">Join</button>
+        </form>
+        <div class="vote-error" id="email-error"></div>
       </div>
+
+      <!-- Vote screen (dynamic question) -->
+      <div id="vote-screen" style="display:none">
+        <div class="eyebrow">Live Poll</div>
+        <h1 id="question-text"></h1>
+        <div class="options" id="options-container"></div>
+        <div class="vote-error" id="vote-error"></div>
+      </div>
+
+      <!-- Waiting screen (no active question) -->
+      <div id="waiting-screen" style="display:none">
+        <div class="eyebrow">Live Poll</div>
+        <h1>Waiting for the next question...</h1>
+        <p class="waiting-hint">The presenter will activate a question shortly.</p>
+      </div>
+
+      <!-- Confirmation -->
       <div class="confirm-wrap" id="confirmation" style="display:none">
         <div class="confirm-icon">✓</div>
         <p>You voted for</p>
         <strong id="voted-option"></strong>
       </div>
+
     </div>
   </div>
   <script>
     const BASE = '__BASE__';
-    function getToken(){let t=sessionStorage.getItem('vt');if(!t){t=Math.random().toString(36).substring(2)+Date.now().toString(36);sessionStorage.setItem('vt',t);}return t;}
-    async function vote(option){
-      document.querySelectorAll('.opt-btn').forEach(b=>b.disabled=true);
-      document.getElementById('error').style.display='none';
-      try{
-        const res=await fetch(BASE+'/api/vote',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({option,token:getToken()})});
-        if(res.ok){
-          const label=document.getElementById('label-'+option)?.textContent||'Option '+option;
-          document.getElementById('vote-screen').style.display='none';
-          document.getElementById('voted-option').textContent=label;
-          document.getElementById('confirmation').style.display='block';
-        }else{throw new Error();}
-      }catch{
-        document.getElementById('error').style.display='block';
-        document.querySelectorAll('.opt-btn').forEach(b=>b.disabled=false);
+    const SET_ID = '__SET_ID__';
+    let jwt = sessionStorage.getItem('jwt_' + SET_ID);
+
+    // Load set name
+    async function loadSetName() {
+      try {
+        const res = await fetch(BASE + '/api/question?set=' + encodeURIComponent(SET_ID));
+        const data = await res.json();
+        if (data.name) document.getElementById('set-name').textContent = data.name;
+      } catch {}
+    }
+
+    // If already registered, go straight to vote/waiting
+    if (jwt) {
+      showScreen('waiting-screen');
+      fetchQuestion();
+    } else {
+      loadSetName();
+    }
+
+    async function register(e) {
+      e.preventDefault();
+      const email = document.getElementById('email-input').value.trim();
+      const btn = document.getElementById('join-btn');
+      const err = document.getElementById('email-error');
+      btn.disabled = true;
+      err.style.display = 'none';
+      try {
+        const res = await fetch(BASE + '/api/voter/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, setId: SET_ID })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Registration failed');
+        jwt = data.jwt;
+        sessionStorage.setItem('jwt_' + SET_ID, jwt);
+        if (data.question) {
+          renderQuestion(data.question);
+          showScreen('vote-screen');
+        } else {
+          showScreen('waiting-screen');
+        }
+      } catch (ex) {
+        err.textContent = ex.message;
+        err.style.display = 'block';
+        btn.disabled = false;
       }
+    }
+
+    async function fetchQuestion() {
+      try {
+        const res = await fetch(BASE + '/api/question?set=' + encodeURIComponent(SET_ID));
+        const data = await res.json();
+        if (data.question) {
+          renderQuestion(data.question);
+          showScreen('vote-screen');
+        } else {
+          showScreen('waiting-screen');
+        }
+      } catch {}
+    }
+
+    function renderQuestion(question) {
+      document.getElementById('question-text').textContent = question.label;
+      const container = document.getElementById('options-container');
+      container.innerHTML = '';
+      question.options.forEach(opt => {
+        const btn = document.createElement('button');
+        btn.className = 'opt-btn';
+        btn.setAttribute('data-option', opt.key);
+        btn.onclick = () => vote(opt.key, opt.label);
+        btn.innerHTML = '<span class="btn-key">' + opt.key + '</span><span>' + opt.label + '</span>';
+        container.appendChild(btn);
+      });
+    }
+
+    async function vote(option, label) {
+      document.querySelectorAll('.opt-btn').forEach(b => b.disabled = true);
+      document.getElementById('vote-error').style.display = 'none';
+      try {
+        const res = await fetch(BASE + '/api/vote', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + jwt },
+          body: JSON.stringify({ option, setId: SET_ID })
+        });
+        const data = await res.json();
+        if (res.ok) {
+          document.getElementById('voted-option').textContent = label;
+          showScreen('confirmation');
+        } else {
+          throw new Error(data.error || 'Vote failed');
+        }
+      } catch (ex) {
+        const err = document.getElementById('vote-error');
+        err.textContent = ex.message;
+        err.style.display = 'block';
+        document.querySelectorAll('.opt-btn').forEach(b => b.disabled = false);
+      }
+    }
+
+    function showScreen(id) {
+      ['email-screen', 'vote-screen', 'waiting-screen', 'confirmation'].forEach(s => {
+        document.getElementById(s).style.display = s === id ? 'block' : 'none';
+      });
     }
   </script>
 </body>

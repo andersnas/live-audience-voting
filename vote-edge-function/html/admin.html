@@ -10,21 +10,12 @@
   <div class="admin-wrap">
     <div class="admin-header">
       <div class="eyebrow">Control Panel</div>
-      <h1>Vote Admin</h1>
+      <h1 id="admin-title">Vote Admin</h1>
     </div>
-    <div class="totals-grid">
-      <div class="total-card" data-option="A"><div class="tc-label">A — Java</div><div class="tc-count" id="count-A">0</div><div class="tc-pct" id="pct-A">0%</div></div>
-      <div class="total-card" data-option="B"><div class="tc-label">B — C#</div><div class="tc-count" id="count-B">0</div><div class="tc-pct" id="pct-B">0%</div></div>
-      <div class="total-card" data-option="C"><div class="tc-label">C — NodeJS</div><div class="tc-count" id="count-C">0</div><div class="tc-pct" id="pct-C">0%</div></div>
-      <div class="total-card" data-option="D"><div class="tc-label">D — Other</div><div class="tc-count" id="count-D">0</div><div class="tc-pct" id="pct-D">0%</div></div>
-    </div>
+    <div id="question-label" style="color:var(--muted);font-family:var(--mono);font-size:0.8rem;margin-bottom:1.5rem;"></div>
+    <div class="totals-grid" id="totals-grid"></div>
     <div class="vote-total-row">Total votes: <strong id="total">0</strong></div>
-    <div class="bars">
-      <div class="bar-row"><span class="bar-lbl">A</span><div class="bar-track"><div class="bar-fill" data-option="A" id="bar-A" style="width:0%"></div></div><span class="bar-count" id="bar-count-A">0</span></div>
-      <div class="bar-row"><span class="bar-lbl">B</span><div class="bar-track"><div class="bar-fill" data-option="B" id="bar-B" style="width:0%"></div></div><span class="bar-count" id="bar-count-B">0</span></div>
-      <div class="bar-row"><span class="bar-lbl">C</span><div class="bar-track"><div class="bar-fill" data-option="C" id="bar-C" style="width:0%"></div></div><span class="bar-count" id="bar-count-C">0</span></div>
-      <div class="bar-row"><span class="bar-lbl">D</span><div class="bar-track"><div class="bar-fill" data-option="D" id="bar-D" style="width:0%"></div></div><span class="bar-count" id="bar-count-D">0</span></div>
-    </div>
+    <div class="bars" id="bars-container"></div>
     <div class="actions">
       <button class="btn btn-refresh" onclick="fetchTotals()">↻ Refresh</button>
       <button class="btn btn-clear" onclick="clearVotes()">✕ Clear all votes</button>
@@ -32,34 +23,124 @@
     <div class="status-msg" id="status"></div>
   </div>
   <script>
-    const BASE='__BASE__';const ORIGIN='__ORIGIN_URL__';const TOKEN='__INTERNAL_TOKEN__';
-    function updateUI(totals,total){['A','B','C','D'].forEach(o=>{const count=totals[o]||0;const pct=total>0?Math.round(count/total*100):0;document.getElementById('count-'+o).textContent=count;document.getElementById('pct-'+o).textContent=pct+'%';document.getElementById('bar-'+o).style.width=pct+'%';document.getElementById('bar-count-'+o).textContent=count;});document.getElementById('total').textContent=total;}
-    async function fetchTotals(){try{const res=await fetch(BASE+'/api/totals');const data=await res.json();updateUI(data.totals,data.total);setStatus('Updated','ok');}catch{setStatus('Failed','err');}}
-    async function clearVotes(){if(!confirm('Clear all votes?'))return;try{const res=await fetch(BASE+'/api/clear',{method:'POST'});const data=await res.json();updateUI({A:0,B:0,C:0,D:0},0);setStatus('Cleared '+data.cleared+' tokens','ok');}catch{setStatus('Failed','err');}}
-    function setStatus(msg,type){const el=document.getElementById('status');el.textContent=msg;el.className='status-msg '+type;setTimeout(()=>{el.textContent='';el.className='status-msg';},3000);}
-    const es=new EventSource(ORIGIN+'/api/events?token='+TOKEN);
-    es.onmessage = (e) => {
+    const BASE='__BASE__';
+    const ORIGIN='__ORIGIN_URL__';
+    const TOKEN='__INTERNAL_TOKEN__';
+    const SET_ID='__SET_ID__';
+    let options = [];
+
+    // Load active question and render UI
+    async function init() {
       try {
-        const ev = JSON.parse(e.data);
-        if (ev.reset) { updateUI({ A:0, B:0, C:0, D:0 }, 0); return; }
-        if (ev.totals) { updateUI(ev.totals, Object.values(ev.totals).reduce((a,b) => a+b, 0)); return; }
-        if (ev.option) {
-          // Increment locally — no network call needed
-          const countEl = document.getElementById('count-' + ev.option);
-          if (countEl) {
-            const newCount = parseInt(countEl.textContent || '0') + 1;
-            const total = parseInt(document.getElementById('total').textContent || '0') + 1;
-            // Rebuild totals from current DOM state
-            const totals = {};
-            ['A','B','C','D'].forEach(o => {
-              totals[o] = parseInt(document.getElementById('count-' + o).textContent || '0');
-            });
-            totals[ev.option] = newCount;
-            updateUI(totals, total);
-          }
+        const res = await fetch(BASE + '/api/question?set=' + encodeURIComponent(SET_ID));
+        const data = await res.json();
+        if (data.question) {
+          document.getElementById('question-label').textContent = data.question.label;
+          options = data.question.options.map(o => o.key);
+          renderGrid(data.question.options);
+          renderBars(data.question.options);
+          updateUI(data.totals || {}, data.total || 0);
+        } else {
+          document.getElementById('question-label').textContent = 'No active question';
         }
       } catch {}
-    };
+      connectSSE();
+    }
+
+    function renderGrid(opts) {
+      const grid = document.getElementById('totals-grid');
+      grid.style.gridTemplateColumns = `repeat(${opts.length}, 1fr)`;
+      grid.innerHTML = opts.map(o =>
+        `<div class="total-card" data-option="${o.key}"><div class="tc-label">${o.key} — ${o.label}</div><div class="tc-count" id="count-${o.key}">0</div><div class="tc-pct" id="pct-${o.key}">0%</div></div>`
+      ).join('');
+    }
+
+    function renderBars(opts) {
+      document.getElementById('bars-container').innerHTML = opts.map(o =>
+        `<div class="bar-row"><span class="bar-lbl">${o.key}</span><div class="bar-track"><div class="bar-fill" data-option="${o.key}" id="bar-${o.key}" style="width:0%"></div></div><span class="bar-count" id="bar-count-${o.key}">0</span></div>`
+      ).join('');
+    }
+
+    function updateUI(totals, total) {
+      options.forEach(o => {
+        const count = totals[o] || 0;
+        const pct = total > 0 ? Math.round(count / total * 100) : 0;
+        const countEl = document.getElementById('count-' + o);
+        if (countEl) countEl.textContent = count;
+        const pctEl = document.getElementById('pct-' + o);
+        if (pctEl) pctEl.textContent = pct + '%';
+        const barEl = document.getElementById('bar-' + o);
+        if (barEl) barEl.style.width = pct + '%';
+        const barCountEl = document.getElementById('bar-count-' + o);
+        if (barCountEl) barCountEl.textContent = count;
+      });
+      document.getElementById('total').textContent = total;
+    }
+
+    async function fetchTotals() {
+      try {
+        const res = await fetch(BASE + '/api/totals?set=' + encodeURIComponent(SET_ID));
+        const data = await res.json();
+        updateUI(data.totals || {}, data.total || 0);
+        setStatus('Updated', 'ok');
+      } catch { setStatus('Failed', 'err'); }
+    }
+
+    async function clearVotes() {
+      if (!confirm('Clear all votes?')) return;
+      try {
+        const res = await fetch(BASE + '/api/clear', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ setId: SET_ID })
+        });
+        const data = await res.json();
+        const empty = {};
+        options.forEach(o => empty[o] = 0);
+        updateUI(empty, 0);
+        setStatus('Cleared ' + data.cleared + ' tokens', 'ok');
+      } catch { setStatus('Failed', 'err'); }
+    }
+
+    function setStatus(msg, type) {
+      const el = document.getElementById('status');
+      el.textContent = msg;
+      el.className = 'status-msg ' + type;
+      setTimeout(() => { el.textContent = ''; el.className = 'status-msg'; }, 3000);
+    }
+
+    function connectSSE() {
+      const es = new EventSource(ORIGIN + '/api/events?set=' + encodeURIComponent(SET_ID) + '&token=' + TOKEN);
+      es.onmessage = (e) => {
+        try {
+          const ev = JSON.parse(e.data);
+          if (ev.type === 'reset') {
+            const empty = {};
+            options.forEach(o => empty[o] = 0);
+            updateUI(empty, 0);
+            return;
+          }
+          if (ev.type === 'activate' && ev.question) {
+            document.getElementById('question-label').textContent = ev.question.label;
+            options = ev.question.options.map(o => o.key);
+            renderGrid(ev.question.options);
+            renderBars(ev.question.options);
+            updateUI(ev.totals || {}, ev.total || 0);
+            return;
+          }
+          if (ev.type === 'vote' && ev.totals) {
+            updateUI(ev.totals, ev.total || 0);
+            return;
+          }
+          if (ev.totals) {
+            updateUI(ev.totals, Object.values(ev.totals).reduce((a, b) => a + b, 0));
+          }
+        } catch {}
+      };
+      es.onerror = () => { es.close(); setTimeout(connectSSE, 3000); };
+    }
+
+    init();
   </script>
 </body>
 </html>
