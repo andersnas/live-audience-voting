@@ -36,7 +36,11 @@
       <div class="admin-header">
         <div class="eyebrow">Control Panel</div>
         <h1 id="admin-title">Vote Admin</h1>
-        <button class="btn btn-deactivate" onclick="logout()" style="margin-top:0.5rem;">↩ Logout</button>
+        <div class="actions" style="margin-top:0.5rem;">
+          <button class="btn btn-deactivate" onclick="copyVoterURL()">🔗 Copy Voter URL</button>
+          <button class="btn btn-deactivate" onclick="logout()">⇄ Switch Session</button>
+        </div>
+        <div class="set-card-id" id="voter-url" style="margin-top:0.5rem;"></div>
       </div>
 
       <!-- Active question + vote counts -->
@@ -56,6 +60,46 @@
           <button class="btn btn-activate" onclick="activateNext()">Next ▶</button>
           <button class="btn btn-deactivate" onclick="restartQueue()">↺ Restart</button>
           <button class="btn btn-clear" onclick="clearVotes()">✕ Clear votes</button>
+        </div>
+      </div>
+
+      <!-- Manage section -->
+      <div class="queue-section">
+        <div class="queue-header">Manage</div>
+        <div class="actions">
+          <button class="btn btn-activate" onclick="toggleCreateForm()">+ New Session</button>
+          <button class="btn btn-deactivate" onclick="toggleEditForm()">✎ Edit Questions</button>
+          <button class="btn btn-clear" onclick="deleteSet()">✕ Delete Session</button>
+        </div>
+
+        <!-- Create new set form -->
+        <div id="create-form" style="display:none;margin-top:1.5rem;">
+          <div class="crud-form">
+            <h3 style="font-size:1rem;margin-bottom:1rem;">New Session</h3>
+            <input type="text" id="create-name" class="email-input" placeholder="Session name" />
+            <input type="password" id="create-code" class="email-input" placeholder="Access code" />
+            <div id="create-questions"></div>
+            <button class="btn btn-deactivate" onclick="addCreateQuestion()" style="margin:0.75rem 0;">+ Add Question</button>
+            <div class="actions">
+              <button class="btn btn-activate" onclick="submitCreate()">Create</button>
+              <button class="btn btn-deactivate" onclick="toggleCreateForm()">Cancel</button>
+            </div>
+            <div class="vote-error" id="create-error"></div>
+          </div>
+        </div>
+
+        <!-- Edit questions form -->
+        <div id="edit-form" style="display:none;margin-top:1.5rem;">
+          <div class="crud-form">
+            <h3 style="font-size:1rem;margin-bottom:1rem;">Edit Questions</h3>
+            <div id="edit-questions"></div>
+            <button class="btn btn-deactivate" onclick="addEditQuestion()" style="margin:0.75rem 0;">+ Add Question</button>
+            <div class="actions">
+              <button class="btn btn-activate" onclick="submitEdit()">Save</button>
+              <button class="btn btn-deactivate" onclick="toggleEditForm()">Cancel</button>
+            </div>
+            <div class="vote-error" id="edit-error"></div>
+          </div>
         </div>
       </div>
 
@@ -97,6 +141,7 @@
           return `<div class="set-card" onclick="window.location.href=BASE+'/admin/?set=${s.id}'">
             <div class="set-card-name">${s.name}</div>
             <div class="set-card-meta">${s.questionCount} question${s.questionCount !== 1 ? 's' : ''} · Created ${date}</div>
+            <div class="set-card-id">${s.id}</div>
           </div>`;
         }).join('');
       } catch {
@@ -131,9 +176,23 @@
       }
     }
 
+    function getVoterURL() {
+      return window.location.origin + BASE + '/?set=' + SET_ID;
+    }
+
+    async function copyVoterURL() {
+      try {
+        await navigator.clipboard.writeText(getVoterURL());
+        setStatus('Voter URL copied!', 'ok');
+      } catch {
+        prompt('Copy this URL:', getVoterURL());
+      }
+    }
+
     async function showPanel() {
       document.getElementById('login-screen').style.display = 'none';
       document.getElementById('admin-panel').style.display = 'block';
+      document.getElementById('voter-url').textContent = getVoterURL();
       await loadQuestion();
       renderQueue();
       connectSSE();
@@ -361,6 +420,164 @@
       document.getElementById('login-screen').style.display = 'block';
       document.getElementById('login-error').textContent = 'Session expired. Please login again.';
       document.getElementById('login-error').style.display = 'block';
+    }
+
+    // --- CRUD ---
+
+    function questionFormHTML(prefix, q, idx) {
+      const opts = q ? q.options : [{key:'A',label:''},{key:'B',label:''}];
+      return `<div class="crud-question" id="${prefix}-q-${idx}">
+        <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem;">
+          <strong style="font-size:0.85rem;">Q${idx+1}</strong>
+          <input type="text" class="email-input" style="margin:0;flex:1;" placeholder="Question text" value="${q ? q.label : ''}" data-field="label" />
+          <button class="btn btn-clear" style="padding:0.4rem 0.6rem;font-size:0.75rem;" onclick="removeQuestion('${prefix}',${idx})">✕</button>
+        </div>
+        <div class="crud-options" id="${prefix}-opts-${idx}">
+          ${opts.map((o,oi) => `<div style="display:flex;gap:0.5rem;margin-bottom:0.4rem;">
+            <input type="text" class="email-input" style="margin:0;width:3rem;text-align:center;" value="${o.key}" data-field="key" />
+            <input type="text" class="email-input" style="margin:0;flex:1;" placeholder="Option label" value="${o.label}" data-field="label" />
+            <button class="btn btn-deactivate" style="padding:0.3rem 0.5rem;font-size:0.7rem;" onclick="this.parentElement.remove()">✕</button>
+          </div>`).join('')}
+        </div>
+        <button class="btn btn-deactivate" style="font-size:0.75rem;padding:0.3rem 0.6rem;margin-bottom:1rem;" onclick="addOption('${prefix}',${idx})">+ Option</button>
+      </div>`;
+    }
+
+    let createQCount = 0;
+    function toggleCreateForm() {
+      const form = document.getElementById('create-form');
+      if (form.style.display === 'none') {
+        form.style.display = 'block';
+        document.getElementById('edit-form').style.display = 'none';
+        createQCount = 0;
+        document.getElementById('create-questions').innerHTML = '';
+        addCreateQuestion();
+      } else {
+        form.style.display = 'none';
+      }
+    }
+
+    function addCreateQuestion() {
+      const container = document.getElementById('create-questions');
+      container.insertAdjacentHTML('beforeend', questionFormHTML('create', null, createQCount++));
+    }
+
+    let editQCount = 0;
+    function toggleEditForm() {
+      const form = document.getElementById('edit-form');
+      if (form.style.display === 'none') {
+        form.style.display = 'block';
+        document.getElementById('create-form').style.display = 'none';
+        document.getElementById('edit-questions').innerHTML = '';
+        editQCount = 0;
+        allQuestions.forEach(q => {
+          document.getElementById('edit-questions').insertAdjacentHTML('beforeend', questionFormHTML('edit', q, editQCount++));
+        });
+      } else {
+        form.style.display = 'none';
+      }
+    }
+
+    function addEditQuestion() {
+      document.getElementById('edit-questions').insertAdjacentHTML('beforeend', questionFormHTML('edit', null, editQCount++));
+    }
+
+    function addOption(prefix, qIdx) {
+      const container = document.getElementById(prefix + '-opts-' + qIdx);
+      const nextKey = String.fromCharCode(65 + container.children.length);
+      container.insertAdjacentHTML('beforeend', `<div style="display:flex;gap:0.5rem;margin-bottom:0.4rem;">
+        <input type="text" class="email-input" style="margin:0;width:3rem;text-align:center;" value="${nextKey}" data-field="key" />
+        <input type="text" class="email-input" style="margin:0;flex:1;" placeholder="Option label" value="" data-field="label" />
+        <button class="btn btn-deactivate" style="padding:0.3rem 0.5rem;font-size:0.7rem;" onclick="this.parentElement.remove()">✕</button>
+      </div>`);
+    }
+
+    function removeQuestion(prefix, idx) {
+      const el = document.getElementById(prefix + '-q-' + idx);
+      if (el) el.remove();
+    }
+
+    function readQuestions(prefix) {
+      const questions = [];
+      const container = document.getElementById(prefix + '-questions');
+      container.querySelectorAll('.crud-question').forEach(qEl => {
+        const label = qEl.querySelector('input[data-field="label"]').value.trim();
+        const opts = [];
+        qEl.querySelector('.crud-options').querySelectorAll('div').forEach(optEl => {
+          const key = optEl.querySelector('input[data-field="key"]')?.value.trim();
+          const olabel = optEl.querySelector('input[data-field="label"]')?.value.trim();
+          if (key && olabel) opts.push({ key, label: olabel });
+        });
+        if (label && opts.length >= 2) questions.push({ label, options: opts });
+      });
+      return questions;
+    }
+
+    async function submitCreate() {
+      const name = document.getElementById('create-name').value.trim();
+      const accessCode = document.getElementById('create-code').value;
+      const questions = readQuestions('create');
+      const err = document.getElementById('create-error');
+      err.style.display = 'none';
+      if (!name) { err.textContent = 'Name is required'; err.style.display = 'block'; return; }
+      if (!accessCode) { err.textContent = 'Access code is required'; err.style.display = 'block'; return; }
+      if (!questions.length) { err.textContent = 'At least one question with 2+ options is required'; err.style.display = 'block'; return; }
+      try {
+        const res = await fetch(BASE + '/api/session/create', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + jwt },
+          body: JSON.stringify({ name, accessCode, questions })
+        });
+        if (res.status === 401) return handleExpired();
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Create failed');
+        toggleCreateForm();
+        setStatus('Session "' + data.name + '" created', 'ok');
+      } catch (ex) {
+        err.textContent = ex.message;
+        err.style.display = 'block';
+      }
+    }
+
+    async function submitEdit() {
+      const questions = readQuestions('edit');
+      const err = document.getElementById('edit-error');
+      err.style.display = 'none';
+      if (!questions.length) { err.textContent = 'At least one question with 2+ options is required'; err.style.display = 'block'; return; }
+      try {
+        const res = await fetch(BASE + '/api/session/update', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + jwt },
+          body: JSON.stringify({ setId: SET_ID, questions })
+        });
+        if (res.status === 401) return handleExpired();
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Update failed');
+        allQuestions = data.questions || allQuestions;
+        toggleEditForm();
+        renderQueue();
+        setStatus('Questions updated', 'ok');
+      } catch (ex) {
+        err.textContent = ex.message;
+        err.style.display = 'block';
+      }
+    }
+
+    async function deleteSet() {
+      if (!confirm('Delete this entire session? This cannot be undone.')) return;
+      try {
+        const res = await fetch(BASE + '/api/session/delete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + jwt },
+          body: JSON.stringify({ setId: SET_ID })
+        });
+        if (res.status === 401) return handleExpired();
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Delete failed');
+        logout();
+      } catch (ex) {
+        setStatus(ex.message, 'err');
+      }
     }
 
     // --- SSE ---
