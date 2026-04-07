@@ -4,190 +4,46 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0"/>
   <title>Vote</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&family=DM+Mono&display=swap" rel="stylesheet">
-  <style>
-    :root {
-      --bg: #002f6c;
-      --bg-card: #003d8a;
-      --btn-a: #a64c7a;
-      --btn-b: #04cd63;
-      --btn-c: #00a3eb;
-      --btn-d: #7a7cff;
-      --text: #ffffff;
-      --text-muted: rgba(255,255,255,0.55);
-      --radius: 16px;
-    }
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
-      font-family: 'DM Sans', sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      min-height: 100vh;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      padding: 2rem 1.5rem;
-      background-image:
-        radial-gradient(ellipse at 20% 20%, rgba(0,163,235,0.12) 0%, transparent 60%),
-        radial-gradient(ellipse at 80% 80%, rgba(122,124,255,0.12) 0%, transparent 60%);
-    }
-    .card {
-      width: 100%;
-      max-width: 400px;
-      background: var(--bg-card);
-      border-radius: 24px;
-      padding: 2.5rem 2rem;
-      box-shadow: 0 24px 64px rgba(0,0,0,0.4);
-      border: 1px solid rgba(255,255,255,0.08);
-    }
-    .eyebrow {
-      font-family: 'DM Mono', monospace;
-      font-size: 0.7rem;
-      letter-spacing: 0.15em;
-      text-transform: uppercase;
-      color: var(--btn-c);
-      margin-bottom: 0.75rem;
-    }
-    h1 {
-      font-size: 1.5rem;
-      font-weight: 700;
-      line-height: 1.3;
-      margin-bottom: 2rem;
-      color: var(--text);
-    }
-    .options {
-      display: flex;
-      flex-direction: column;
-      gap: 0.85rem;
-    }
-    button {
-      width: 100%;
-      padding: 1rem 1.25rem;
-      font-family: 'DM Sans', sans-serif;
-      font-size: 1rem;
-      font-weight: 700;
-      border: none;
-      border-radius: var(--radius);
-      cursor: pointer;
-      color: #fff;
-      text-align: left;
-      display: flex;
-      align-items: center;
-      gap: 1rem;
-      transition: transform 0.12s ease, opacity 0.12s ease, box-shadow 0.12s ease;
-      position: relative;
-      overflow: hidden;
-    }
-    button::before {
-      content: '';
-      position: absolute;
-      inset: 0;
-      background: rgba(255,255,255,0.08);
-      opacity: 0;
-      transition: opacity 0.12s;
-    }
-    button:hover::before { opacity: 1; }
-    button:active { transform: scale(0.97); }
-    button:disabled { opacity: 0.35; cursor: not-allowed; transform: none; }
-    .btn-label {
-      font-family: 'DM Mono', monospace;
-      font-size: 0.75rem;
-      background: rgba(0,0,0,0.2);
-      padding: 0.2rem 0.5rem;
-      border-radius: 6px;
-      letter-spacing: 0.05em;
-      flex-shrink: 0;
-    }
-    button[data-option="A"] { background: var(--btn-a); box-shadow: 0 4px 24px rgba(166,76,122,0.35); }
-    button[data-option="B"] { background: var(--btn-b); box-shadow: 0 4px 24px rgba(4,205,99,0.35); color: #001a00; }
-    button[data-option="B"] .btn-label { color: #fff; background: rgba(0,0,0,0.2); }
-    button[data-option="C"] { background: var(--btn-c); box-shadow: 0 4px 24px rgba(0,163,235,0.35); }
-    button[data-option="D"] { background: var(--btn-d); box-shadow: 0 4px 24px rgba(122,124,255,0.35); }
-    #error {
-      color: #ff6b8a;
-      font-size: 0.85rem;
-      text-align: center;
-      margin-top: 1.25rem;
-      display: none;
-      font-family: 'DM Mono', monospace;
-    }
-    #confirmation {
-      display: none;
-      text-align: center;
-    }
-    .check-wrap {
-      width: 72px;
-      height: 72px;
-      background: rgba(4,205,99,0.15);
-      border-radius: 50%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      margin: 0 auto 1.5rem;
-      font-size: 2rem;
-    }
-    #confirmation p { color: var(--text-muted); margin-bottom: 0.5rem; }
-    #confirmation strong { font-size: 1.4rem; font-weight: 700; }
-  </style>
+  <link rel="stylesheet" href="__BASE__/styles.css">
 </head>
 <body>
-  <div class="card">
-    <div id="vote-screen">
-      <div class="eyebrow">Live Poll</div>
-      <h1 id="question-text">Which backend language do you use?</h1>
-      <div class="options" id="options-container">
-        <button data-option="A" onclick="vote('A')">
-          <span class="btn-label">A</span>
-          <span id="label-A">Java</span>
-        </button>
-        <button data-option="B" onclick="vote('B')">
-          <span class="btn-label">B</span>
-          <span id="label-B">C#</span>
-        </button>
-        <button data-option="C" onclick="vote('C')">
-          <span class="btn-label">C</span>
-          <span id="label-C">NodeJS</span>
-        </button>
-        <button data-option="D" onclick="vote('D')">
-          <span class="btn-label">D</span>
-          <span id="label-D">Other</span>
-        </button>
+  <div class="vote-wrap">
+    <div class="vote-card">
+      <div id="vote-screen">
+        <div class="eyebrow">Live Poll</div>
+        <h1 id="question-text">Which backend language do you use?</h1>
+        <div class="options">
+          <button class="opt-btn" data-option="A" onclick="vote('A')"><span class="btn-key">A</span><span id="label-A">Java</span></button>
+          <button class="opt-btn" data-option="B" onclick="vote('B')"><span class="btn-key">B</span><span id="label-B">C#</span></button>
+          <button class="opt-btn" data-option="C" onclick="vote('C')"><span class="btn-key">C</span><span id="label-C">NodeJS</span></button>
+          <button class="opt-btn" data-option="D" onclick="vote('D')"><span class="btn-key">D</span><span id="label-D">Other</span></button>
+        </div>
+        <div class="vote-error" id="error">Something went wrong. Please try again.</div>
       </div>
-      <div id="error">Something went wrong. Please try again.</div>
-    </div>
-    <div id="confirmation">
-      <div class="check-wrap">✓</div>
-      <p>You voted for</p>
-      <strong id="voted-option"></strong>
+      <div class="confirm-wrap" id="confirmation" style="display:none">
+        <div class="confirm-icon">✓</div>
+        <p>You voted for</p>
+        <strong id="voted-option"></strong>
+      </div>
     </div>
   </div>
   <script>
     const BASE = '__BASE__';
-    function getToken(){
-      let t = sessionStorage.getItem('vt');
-      if (!t) { t = Math.random().toString(36).substring(2) + Date.now().toString(36); sessionStorage.setItem('vt', t); }
-      return t;
-    }
-    async function vote(option) {
-      document.querySelectorAll('button').forEach(b => b.disabled = true);
-      document.getElementById('error').style.display = 'none';
-      try {
-        const res = await fetch(BASE + '/api/vote', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ option, token: getToken() })
-        });
-        if (res.ok) {
-          const label = document.getElementById('label-' + option)?.textContent || 'Option ' + option;
-          document.getElementById('vote-screen').style.display = 'none';
-          document.getElementById('voted-option').textContent = label;
-          document.getElementById('confirmation').style.display = 'block';
-        } else { throw new Error(); }
-      } catch {
-        document.getElementById('error').style.display = 'block';
-        document.querySelectorAll('button').forEach(b => b.disabled = false);
+    function getToken(){let t=sessionStorage.getItem('vt');if(!t){t=Math.random().toString(36).substring(2)+Date.now().toString(36);sessionStorage.setItem('vt',t);}return t;}
+    async function vote(option){
+      document.querySelectorAll('.opt-btn').forEach(b=>b.disabled=true);
+      document.getElementById('error').style.display='none';
+      try{
+        const res=await fetch(BASE+'/api/vote',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({option,token:getToken()})});
+        if(res.ok){
+          const label=document.getElementById('label-'+option)?.textContent||'Option '+option;
+          document.getElementById('vote-screen').style.display='none';
+          document.getElementById('voted-option').textContent=label;
+          document.getElementById('confirmation').style.display='block';
+        }else{throw new Error();}
+      }catch{
+        document.getElementById('error').style.display='block';
+        document.querySelectorAll('.opt-btn').forEach(b=>b.disabled=false);
       }
     }
   </script>

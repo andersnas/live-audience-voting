@@ -3,155 +3,27 @@
 <head>
   <meta charset="UTF-8"/>
   <title>Live Vote Results</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;700;900&family=DM+Mono&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="__STYLES_URL__/styles.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
-  <style>
-    :root {
-      --bg: #002f6c;
-      --btn-a: #a64c7a;
-      --btn-b: #04cd63;
-      --btn-c: #00a3eb;
-      --btn-d: #7a7cff;
-    }
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
-      background: var(--bg);
-      color: #fff;
-      font-family: 'DM Sans', sans-serif;
-      height: 100vh;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      padding: 2.5rem;
-      background-image:
-        radial-gradient(ellipse at 15% 15%, rgba(0,163,235,0.15) 0%, transparent 55%),
-        radial-gradient(ellipse at 85% 85%, rgba(122,124,255,0.15) 0%, transparent 55%);
-      overflow: hidden;
-    }
-    .eyebrow {
-      font-family: 'DM Mono', monospace;
-      font-size: 0.75rem;
-      letter-spacing: 0.2em;
-      text-transform: uppercase;
-      color: var(--btn-c);
-      margin-bottom: 0.75rem;
-      text-align: center;
-    }
-    h1 {
-      font-size: clamp(1.5rem, 3vw, 2.5rem);
-      font-weight: 900;
-      text-align: center;
-      margin-bottom: 2rem;
-      line-height: 1.2;
-      max-width: 900px;
-    }
-    #chart-container {
-      width: 100%;
-      max-width: 960px;
-      flex: 1;
-      max-height: 55vh;
-    }
-    #total {
-      margin-top: 1.5rem;
-      font-family: 'DM Mono', monospace;
-      font-size: 0.9rem;
-      color: rgba(255,255,255,0.4);
-      text-align: center;
-    }
-    #status {
-      position: fixed;
-      bottom: 1.5rem;
-      right: 1.5rem;
-      font-family: 'DM Mono', monospace;
-      font-size: 0.7rem;
-      color: rgba(255,255,255,0.25);
-      display: flex;
-      align-items: center;
-      gap: 0.4rem;
-    }
-    #status::before {
-      content: '●';
-      font-size: 0.5rem;
-    }
-    #status.connected { color: var(--btn-b); }
-    #status.error { color: #ff4d6d; }
-  </style>
 </head>
 <body>
-  <div class="eyebrow">Live Results</div>
-  <h1>Which backend language do you use?</h1>
-  <div id="chart-container"><canvas id="chart"></canvas></div>
-  <div id="total">0 votes</div>
-  <div id="status">Connecting...</div>
+  <div class="display-wrap">
+    <div class="eyebrow">Live Results</div>
+    <h1>Which backend language do you use?</h1>
+    <div class="display-chart"><canvas id="chart"></canvas></div>
+    <div class="display-total" id="total">0 votes</div>
+    <div class="display-status" id="status">Connecting...</div>
+  </div>
   <script>
-    const SSE_URL = "__SSE_URL__";
-    const OPTIONS = ["A","B","C","D"];
-    const LABELS = ["Java","C#","NodeJS","Other"];
-    const COLORS = ["#a64c7a","#04cd63","#00a3eb","#7a7cff"];
-    const tally = { A:0, B:0, C:0, D:0 };
-
-    const chart = new Chart(document.getElementById("chart").getContext("2d"), {
-      type: "bar",
-      data: {
-        labels: LABELS,
-        datasets: [{
-          data: OPTIONS.map(o => tally[o]),
-          backgroundColor: COLORS,
-          borderRadius: 12,
-          borderSkipped: false,
-          borderWidth: 0,
-        }]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        animation: { duration: 400, easing: 'easeOutQuart' },
-        plugins: { legend: { display: false } },
-        scales: {
-          x: {
-            grid: { color: "rgba(255,255,255,0.06)" },
-            ticks: { color: "rgba(255,255,255,0.7)", font: { size: 20, weight: '700', family: 'DM Sans' } }
-          },
-          y: {
-            beginAtZero: true,
-            grid: { color: "rgba(255,255,255,0.06)" },
-            ticks: { color: "rgba(255,255,255,0.4)", precision: 0, font: { family: 'DM Mono' } }
-          }
-        }
-      }
-    });
-
-    function updateChart() {
-      chart.data.datasets[0].data = OPTIONS.map(o => tally[o]);
-      chart.update();
-      const total = Object.values(tally).reduce((a,b) => a+b, 0);
-      document.getElementById("total").textContent = `${total} vote${total !== 1 ? "s" : ""}`;
-    }
-
-    const statusEl = document.getElementById("status");
-    function connect() {
-      const es = new EventSource(SSE_URL);
-      es.onopen = () => { statusEl.textContent = "Live"; statusEl.className = "connected"; };
-      es.onmessage = (e) => {
-        try {
-          const event = JSON.parse(e.data);
-          if (event.totals) {
-            Object.assign(tally, event.totals);
-          } else if (event.option && tally.hasOwnProperty(event.option)) {
-            tally[event.option]++;
-          }
-          updateChart();
-        } catch {}
-      };
-      es.onerror = () => {
-        statusEl.textContent = "Reconnecting...";
-        statusEl.className = "error";
-        es.close();
-        setTimeout(connect, 3000);
-      };
-    }
+    const SSE_URL="__SSE_URL__";
+    const OPTIONS=["A","B","C","D"];
+    const LABELS=["Java","C#","NodeJS","Other"];
+    const COLORS=["#a64c7a","#04cd63","#00a3eb","#7a7cff"];
+    const tally={A:0,B:0,C:0,D:0};
+    const chart=new Chart(document.getElementById("chart").getContext("2d"),{type:"bar",data:{labels:LABELS,datasets:[{data:OPTIONS.map(o=>tally[o]),backgroundColor:COLORS,borderRadius:12,borderSkipped:false}]},options:{responsive:true,maintainAspectRatio:false,animation:{duration:400,easing:'easeOutQuart'},plugins:{legend:{display:false}},scales:{x:{grid:{color:"rgba(255,255,255,0.06)"},ticks:{color:"rgba(255,255,255,0.7)",font:{size:20,weight:'700',family:'DM Sans'}}},y:{beginAtZero:true,grid:{color:"rgba(255,255,255,0.06)"},ticks:{color:"rgba(255,255,255,0.4)",precision:0,font:{family:'DM Mono'}}}}}});
+    function updateChart(){chart.data.datasets[0].data=OPTIONS.map(o=>tally[o]);chart.update();const total=Object.values(tally).reduce((a,b)=>a+b,0);document.getElementById("total").textContent=`${total} vote${total!==1?"s":""}`;}
+    const statusEl=document.getElementById("status");
+    function connect(){const es=new EventSource(SSE_URL);es.onopen=()=>{statusEl.textContent="● Live";statusEl.className="display-status connected";};es.onmessage=(e)=>{try{const ev=JSON.parse(e.data);if(ev.totals){Object.assign(tally,ev.totals);}else if(ev.option&&tally.hasOwnProperty(ev.option)){tally[ev.option]++;}updateChart();}catch{}};es.onerror=()=>{statusEl.textContent="● Reconnecting...";statusEl.className="display-status error";es.close();setTimeout(connect,3000);};}
     connect();
   </script>
 </body>

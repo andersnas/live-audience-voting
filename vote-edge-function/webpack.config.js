@@ -17,8 +17,8 @@ const config = async () => {
         module: {
             rules: [
                 {
-                    test: /\.html$/,
-                    use: 'raw-loader'
+                test: /\.(html|css)$/,
+                use: 'raw-loader'
                 }
             ]
         },
