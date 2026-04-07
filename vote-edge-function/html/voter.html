@@ -78,7 +78,13 @@
       }
 
       const qId = data.question.id;
-      const votedLabel = sessionStorage.getItem(votedKey(qId));
+      let votedLabel = sessionStorage.getItem(votedKey(qId));
+
+      // If votes were cleared (total is 0), allow re-voting
+      if (votedLabel && data.total === 0) {
+        sessionStorage.removeItem(votedKey(qId));
+        votedLabel = null;
+      }
 
       if (votedLabel) {
         // Already voted on this question → VOTED

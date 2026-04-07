@@ -304,14 +304,18 @@ const server = http.createServer(async (req, res) => {
     if (!questionSet) return json(res, 404, { error: "Set not found" });
 
     const activeId = await getActiveQuestionId(setId);
-    if (!activeId) return json(res, 200, { setId, name: questionSet.name, active: null });
+    const includeAll = parsedUrl.searchParams.get("include") === "all";
+    const base_response: any = { setId, name: questionSet.name };
+    if (includeAll) base_response.questions = questionSet.questions;
+
+    if (!activeId) return json(res, 200, { ...base_response, active: null });
 
     const question = questionSet.questions.find(q => q.id === activeId);
-    if (!question) return json(res, 200, { setId, name: questionSet.name, active: null });
+    if (!question) return json(res, 200, { ...base_response, active: null });
 
     const totals = await getTotals(setId, activeId);
     const total = Object.values(totals).reduce((a, b) => a + b, 0);
-    json(res, 200, { setId, name: questionSet.name, question, totals, total });
+    json(res, 200, { ...base_response, question, totals, total });
     return;
   }
 
@@ -470,7 +474,7 @@ const server = http.createServer(async (req, res) => {
       const validKeys = question.options.map(o => o.key);
       if (!option || !validKeys.includes(option)) return json(res, 400, { error: "Invalid option" });
 
-      const voterKey = `voter:${setId}:${token}`;
+      const voterKey = `voter:${setId}:${activeId}:${token}`;
       const isNew = await publisher.set(voterKey, "1", "EX", SESSION_TTL, "NX");
       if (isNew) {
         await publisher.hincrby(`set:${setId}:${activeId}:votes`, option, 1);

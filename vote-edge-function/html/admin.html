@@ -28,14 +28,27 @@
         <div class="eyebrow">Control Panel</div>
         <h1 id="admin-title">Vote Admin</h1>
       </div>
-      <div id="question-label" style="color:var(--muted);font-family:var(--mono);font-size:0.8rem;margin-bottom:1.5rem;"></div>
-      <div class="totals-grid" id="totals-grid"></div>
-      <div class="vote-total-row">Total votes: <strong id="total">0</strong></div>
-      <div class="bars" id="bars-container"></div>
-      <div class="actions">
-        <button class="btn btn-refresh" onclick="fetchTotals()">↻ Refresh</button>
-        <button class="btn btn-clear" onclick="clearVotes()">✕ Clear all votes</button>
+
+      <!-- Active question + vote counts -->
+      <div id="active-section">
+        <div id="question-label" style="color:var(--muted);font-family:var(--mono);font-size:0.8rem;margin-bottom:1.5rem;"></div>
+        <div class="totals-grid" id="totals-grid"></div>
+        <div class="vote-total-row">Total votes: <strong id="total">0</strong></div>
+        <div class="bars" id="bars-container"></div>
       </div>
+
+      <!-- Question queue -->
+      <div class="queue-section">
+        <div class="queue-header">Question Queue</div>
+        <div id="queue-list"></div>
+        <div class="actions" style="margin-top:1rem;">
+          <button class="btn btn-deactivate" onclick="activatePrev()">◀ Previous</button>
+          <button class="btn btn-activate" onclick="activateNext()">Next ▶</button>
+          <button class="btn btn-deactivate" onclick="restartQueue()">↺ Restart</button>
+          <button class="btn btn-clear" onclick="clearVotes()">✕ Clear votes</button>
+        </div>
+      </div>
+
       <div class="status-msg" id="status"></div>
     </div>
 
@@ -47,8 +60,10 @@
     const SET_ID='__SET_ID__';
     let jwt = sessionStorage.getItem('admin_jwt_' + SET_ID);
     let options = [];
+    let allQuestions = JSON.parse(sessionStorage.getItem('admin_questions_' + SET_ID) || '[]');
+    let activeQuestionId = null;
+    let doneQuestions = new Set(JSON.parse(sessionStorage.getItem('done_' + SET_ID) || '[]'));
 
-    // If already logged in, go to panel
     if (jwt) { showPanel(); }
 
     async function login(e) {
@@ -68,6 +83,8 @@
         if (!res.ok) throw new Error(data.error || 'Login failed');
         jwt = data.jwt;
         sessionStorage.setItem('admin_jwt_' + SET_ID, jwt);
+        allQuestions = data.questions || [];
+        sessionStorage.setItem('admin_questions_' + SET_ID, JSON.stringify(allQuestions));
         showPanel();
       } catch (ex) {
         err.textContent = ex.message;
@@ -80,6 +97,7 @@
       document.getElementById('login-screen').style.display = 'none';
       document.getElementById('admin-panel').style.display = 'block';
       await loadQuestion();
+      renderQueue();
       connectSSE();
     }
 
@@ -91,17 +109,141 @@
         if (res.status === 401) return handleExpired();
         const data = await res.json();
         if (data.name) document.getElementById('admin-title').textContent = data.name;
+        if (data.questions) allQuestions = data.questions;
         if (data.question) {
-          document.getElementById('question-label').textContent = data.question.label;
-          options = data.question.options.map(o => o.key);
-          renderGrid(data.question.options);
-          renderBars(data.question.options);
-          updateUI(data.totals || {}, data.total || 0);
+          activeQuestionId = data.question.id;
+          setActiveUI(data.question, data.totals, data.total);
         } else {
+          activeQuestionId = null;
           document.getElementById('question-label').textContent = 'No active question';
+          document.getElementById('totals-grid').innerHTML = '';
+          document.getElementById('bars-container').innerHTML = '';
+          document.getElementById('total').textContent = '0';
         }
       } catch {}
     }
+
+    function setActiveUI(question, totals, total) {
+      document.getElementById('question-label').textContent = question.label;
+      options = question.options.map(o => o.key);
+      renderGrid(question.options);
+      renderBars(question.options);
+      updateUI(totals || {}, total || 0);
+    }
+
+    // --- Question queue ---
+
+    function renderQueue() {
+      const list = document.getElementById('queue-list');
+      list.innerHTML = allQuestions.map(q => {
+        let status, badge;
+        if (q.id === activeQuestionId) {
+          status = 'active'; badge = 'ACTIVE';
+        } else if (doneQuestions.has(q.id)) {
+          status = 'done'; badge = 'DONE';
+        } else {
+          status = 'pending'; badge = 'PENDING';
+        }
+        const num = parseInt(q.id.replace('q','')) + 1;
+        const icon = status === 'active' ? '▶' : status === 'done' ? '✓' : '○';
+        return `<div class="queue-item queue-${status}" onclick="activateQuestion('${q.id}')">
+          <span class="queue-num">${icon}</span>
+          <span class="queue-label"><strong>Q${num}</strong> ${q.label}</span>
+          <span class="queue-badge queue-badge-${status}">${badge}</span>
+        </div>`;
+      }).join('');
+    }
+
+    async function activateQuestion(questionId) {
+      try {
+        const res = await fetch(BASE + '/api/question/activate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + jwt },
+          body: JSON.stringify({ setId: SET_ID, questionId })
+        });
+        if (res.status === 401) return handleExpired();
+        const data = await res.json();
+        if (data.ok) {
+          // Mark previous as done
+          if (activeQuestionId && activeQuestionId !== questionId) {
+            doneQuestions.add(activeQuestionId);
+            saveDone();
+          }
+          activeQuestionId = questionId;
+          renderQueue();
+          setStatus('Activated ' + questionId, 'ok');
+        }
+      } catch { setStatus('Failed to activate', 'err'); }
+    }
+
+    function activateNext() {
+      if (allQuestions.length === 0) return setStatus('No questions', 'err');
+      const currentIdx = activeQuestionId ? allQuestions.findIndex(q => q.id === activeQuestionId) : -1;
+      const nextIdx = currentIdx + 1;
+      if (nextIdx < allQuestions.length) {
+        activateQuestion(allQuestions[nextIdx].id);
+      } else {
+        setStatus('Last question reached', 'err');
+      }
+    }
+
+    function activatePrev() {
+      if (allQuestions.length === 0) return setStatus('No questions', 'err');
+      const currentIdx = allQuestions.findIndex(q => q.id === activeQuestionId);
+      if (currentIdx > 0) {
+        activateQuestion(allQuestions[currentIdx - 1].id);
+      } else {
+        setStatus('Already at first question', 'err');
+      }
+    }
+
+    async function restartQueue() {
+      try {
+        const res = await fetch(BASE + '/api/question/activate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + jwt },
+          body: JSON.stringify({ setId: SET_ID, questionId: null })
+        });
+        if (res.status === 401) return handleExpired();
+        doneQuestions.clear();
+        saveDone();
+        activeQuestionId = null;
+        document.getElementById('question-label').textContent = 'No active question';
+        document.getElementById('totals-grid').innerHTML = '';
+        document.getElementById('bars-container').innerHTML = '';
+        document.getElementById('total').textContent = '0';
+        renderQueue();
+        setStatus('Queue restarted — press Next to begin', 'ok');
+      } catch { setStatus('Failed', 'err'); }
+    }
+
+    async function deactivate() {
+      try {
+        const res = await fetch(BASE + '/api/question/activate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + jwt },
+          body: JSON.stringify({ setId: SET_ID, questionId: null })
+        });
+        if (res.status === 401) return handleExpired();
+        if (activeQuestionId) {
+          doneQuestions.add(activeQuestionId);
+          saveDone();
+        }
+        activeQuestionId = null;
+        document.getElementById('question-label').textContent = 'No active question';
+        document.getElementById('totals-grid').innerHTML = '';
+        document.getElementById('bars-container').innerHTML = '';
+        document.getElementById('total').textContent = '0';
+        renderQueue();
+        setStatus('Deactivated', 'ok');
+      } catch { setStatus('Failed', 'err'); }
+    }
+
+    function saveDone() {
+      sessionStorage.setItem('done_' + SET_ID, JSON.stringify([...doneQuestions]));
+    }
+
+    // --- Vote totals UI ---
 
     function renderGrid(opts) {
       const grid = document.getElementById('totals-grid');
@@ -143,12 +285,12 @@
     }
 
     async function clearVotes() {
-      if (!confirm('Clear all votes?')) return;
+      if (!confirm('Clear votes for the active question?')) return;
       try {
         const res = await fetch(BASE + '/api/clear', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + jwt },
-          body: JSON.stringify({ setId: SET_ID })
+          body: JSON.stringify({ setId: SET_ID, questionId: activeQuestionId })
         });
         if (res.status === 401) return handleExpired();
         const data = await res.json();
@@ -175,6 +317,8 @@
       document.getElementById('login-error').style.display = 'block';
     }
 
+    // --- SSE ---
+
     function connectSSE() {
       const es = new EventSource(ORIGIN + '/api/events?set=' + encodeURIComponent(SET_ID) + '&token=' + INTERNAL_TOKEN);
       es.onmessage = (e) => {
@@ -187,11 +331,26 @@
             return;
           }
           if (ev.type === 'activate' && ev.question) {
-            document.getElementById('question-label').textContent = ev.question.label;
-            options = ev.question.options.map(o => o.key);
-            renderGrid(ev.question.options);
-            renderBars(ev.question.options);
-            updateUI(ev.totals || {}, ev.total || 0);
+            if (activeQuestionId && activeQuestionId !== ev.questionId) {
+              doneQuestions.add(activeQuestionId);
+              saveDone();
+            }
+            activeQuestionId = ev.questionId;
+            setActiveUI(ev.question, ev.totals, ev.total);
+            renderQueue();
+            return;
+          }
+          if (ev.type === 'deactivate') {
+            if (activeQuestionId) {
+              doneQuestions.add(activeQuestionId);
+              saveDone();
+            }
+            activeQuestionId = null;
+            document.getElementById('question-label').textContent = 'No active question';
+            document.getElementById('totals-grid').innerHTML = '';
+            document.getElementById('bars-container').innerHTML = '';
+            document.getElementById('total').textContent = '0';
+            renderQueue();
             return;
           }
           if (ev.type === 'vote' && ev.totals) {
