@@ -9,8 +9,17 @@
 <body>
   <div class="admin-wrap">
 
+    <!-- Set picker screen -->
+    <div id="set-picker" style="display:none">
+      <div style="max-width:500px;margin:10vh auto;">
+        <div class="eyebrow">Admin</div>
+        <h1 style="font-size:1.4rem;margin-bottom:1.5rem;">Choose a session</h1>
+        <div id="set-list"></div>
+      </div>
+    </div>
+
     <!-- Login screen -->
-    <div id="login-screen">
+    <div id="login-screen" style="display:none">
       <div class="vote-card" style="max-width:400px;margin:15vh auto;">
         <div class="eyebrow">Admin Login</div>
         <h1 id="login-title" style="font-size:1.3rem;margin-bottom:1.5rem;">Enter access code</h1>
@@ -27,6 +36,7 @@
       <div class="admin-header">
         <div class="eyebrow">Control Panel</div>
         <h1 id="admin-title">Vote Admin</h1>
+        <button class="btn btn-deactivate" onclick="logout()" style="margin-top:0.5rem;">↩ Logout</button>
       </div>
 
       <!-- Active question + vote counts -->
@@ -64,7 +74,35 @@
     let activeQuestionId = null;
     let doneQuestions = new Set(JSON.parse(sessionStorage.getItem('done_' + SET_ID) || '[]'));
 
-    if (jwt) { showPanel(); }
+    if (!SET_ID) {
+      loadSessions();
+    } else if (jwt) {
+      showPanel();
+    } else {
+      document.getElementById('login-screen').style.display = 'block';
+    }
+
+    async function loadSessions() {
+      document.getElementById('set-picker').style.display = 'block';
+      try {
+        const res = await fetch(BASE + '/api/sessions');
+        const sessions = await res.json();
+        const list = document.getElementById('set-list');
+        if (!sessions.length) {
+          list.innerHTML = '<p style="color:var(--muted)">No sessions found.</p>';
+          return;
+        }
+        list.innerHTML = sessions.map(s => {
+          const date = new Date(s.createdAt).toLocaleDateString();
+          return `<div class="set-card" onclick="window.location.href=BASE+'/admin/?set=${s.id}'">
+            <div class="set-card-name">${s.name}</div>
+            <div class="set-card-meta">${s.questionCount} question${s.questionCount !== 1 ? 's' : ''} · Created ${date}</div>
+          </div>`;
+        }).join('');
+      } catch {
+        document.getElementById('set-list').innerHTML = '<p style="color:var(--red)">Failed to load sessions.</p>';
+      }
+    }
 
     async function login(e) {
       e.preventDefault();
@@ -306,6 +344,14 @@
       el.textContent = msg;
       el.className = 'status-msg ' + type;
       setTimeout(() => { el.textContent = ''; el.className = 'status-msg'; }, 3000);
+    }
+
+    function logout() {
+      jwt = null;
+      sessionStorage.removeItem('admin_jwt_' + SET_ID);
+      sessionStorage.removeItem('admin_questions_' + SET_ID);
+      sessionStorage.removeItem('done_' + SET_ID);
+      window.location.href = BASE + '/admin/';
     }
 
     function handleExpired() {

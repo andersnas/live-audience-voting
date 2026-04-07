@@ -88,7 +88,7 @@ function getBase(req) {
   const path = new URL(req.url).pathname;
   const markers = [
     '/api/vote', '/api/clear', '/api/totals', '/api/events', '/api/health',
-    '/api/session/', '/api/question', '/api/admin/', '/api/voter/',
+    '/api/session/', '/api/sessions', '/api/question', '/api/admin/', '/api/voter/',
     '/admin/', '/admin', '/display/', '/display',
   ];
   for (const m of markers) {
@@ -209,6 +209,11 @@ router.all("*", async (req) => {
   // --- API routes ---
   if (path.endsWith('/api/vote') && req.method === 'POST') return handleVote(req);
   if (path.endsWith('/api/health')) return new Response('ok', { status: 200, headers: { "content-type": "text/plain" } });
+
+  // Sessions list — no auth needed
+  if (path.endsWith('/api/sessions') && req.method === 'GET') {
+    return proxyJSON(ORIGIN_URL + '/api/sessions');
+  }
 
   // Voter register — edge function generates JWT
   if (path.endsWith('/api/voter/register') && req.method === 'POST') {
