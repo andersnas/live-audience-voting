@@ -4,6 +4,7 @@ auth:
   password: ""   # set via --set auth.password=YOUR_PASSWORD
 master:
   persistence:
-    enabled: false
+    enabled: true
+    size: 1Gi
 replica:
   replicaCount: 0
