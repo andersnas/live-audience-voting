@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8"/>
   <title>Live Vote Results</title>
-  <link rel="stylesheet" href="__STYLES_URL__/styles.css">
+  <link rel="stylesheet" href="__BASE__/styles.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 </head>
 <body>
@@ -15,7 +15,7 @@
     <div class="display-status" id="status">Connecting...</div>
   </div>
   <script>
-    const SSE_URL="__SSE_URL__";
+    const BASE="__BASE__";const ORIGIN="__ORIGIN_URL__";const TOKEN="__INTERNAL_TOKEN__";
     const OPTIONS=["A","B","C","D"];
     const LABELS=["Java","C#","NodeJS","Other"];
     const COLORS=["#a64c7a","#04cd63","#00a3eb","#7a7cff"];
@@ -23,7 +23,7 @@
     const chart=new Chart(document.getElementById("chart").getContext("2d"),{type:"bar",data:{labels:LABELS,datasets:[{data:OPTIONS.map(o=>tally[o]),backgroundColor:COLORS,borderRadius:12,borderSkipped:false}]},options:{responsive:true,maintainAspectRatio:false,animation:{duration:400,easing:'easeOutQuart'},plugins:{legend:{display:false}},scales:{x:{grid:{color:"rgba(255,255,255,0.06)"},ticks:{color:"rgba(255,255,255,0.7)",font:{size:20,weight:'700',family:'DM Sans'}}},y:{beginAtZero:true,grid:{color:"rgba(255,255,255,0.06)"},ticks:{color:"rgba(255,255,255,0.4)",precision:0,font:{family:'DM Mono'}}}}}});
     function updateChart(){chart.data.datasets[0].data=OPTIONS.map(o=>tally[o]);chart.update();const total=Object.values(tally).reduce((a,b)=>a+b,0);document.getElementById("total").textContent=`${total} vote${total!==1?"s":""}`;}
     const statusEl=document.getElementById("status");
-    function connect(){const es=new EventSource(SSE_URL);es.onopen=()=>{statusEl.textContent="● Live";statusEl.className="display-status connected";};es.onmessage=(e)=>{try{const ev=JSON.parse(e.data);if(ev.totals){Object.assign(tally,ev.totals);}else if(ev.option&&tally.hasOwnProperty(ev.option)){tally[ev.option]++;}updateChart();}catch{}};es.onerror=()=>{statusEl.textContent="● Reconnecting...";statusEl.className="display-status error";es.close();setTimeout(connect,3000);};}
+    function connect(){const es=new EventSource(ORIGIN+'/api/events?token='+TOKEN);es.onopen=()=>{statusEl.textContent="● Live";statusEl.className="display-status connected";};es.onmessage=(e)=>{try{const ev=JSON.parse(e.data);if(ev.reset){tally.A=0;tally.B=0;tally.C=0;tally.D=0;}else if(ev.totals){Object.assign(tally,ev.totals);}else if(ev.option&&tally.hasOwnProperty(ev.option)){tally[ev.option]++;}updateChart();}catch{}};es.onerror=()=>{statusEl.textContent="● Reconnecting...";statusEl.className="display-status error";es.close();setTimeout(connect,3000);};}
     connect();
   </script>
 </body>

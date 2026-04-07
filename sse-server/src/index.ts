@@ -9,6 +9,7 @@ const VOTES_CHANNEL = "votes";
 const VOTER_KEY_PREFIX = "voter:";
 const SESSION_TTL = parseInt(process.env.SESSION_TTL ?? "3600");
 const VALID_OPTIONS = ["A", "B", "C", "D"];
+const INTERNAL_TOKEN = process.env.INTERNAL_TOKEN ?? "";
 const BASE = "/voterapp/api";
 
 const publisher = new Redis({ host: REDIS_HOST, port: REDIS_PORT, password: REDIS_PASSWORD });
@@ -35,13 +36,26 @@ publisher.on("error", (err) => console.error("Redis publisher error:", err));
 subscriber.on("error", (err) => console.error("Redis subscriber error:", err));
 
 const server = http.createServer(async (req, res) => {
-  const url = req.url ?? "/";
+  const rawUrl = req.url ?? "/";
+  const parsedUrl = new URL(rawUrl, `http://${req.headers.host}`);
+  const url = parsedUrl.pathname;
 
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
   if (req.method === "OPTIONS") { res.writeHead(204); res.end(); return; }
+
+  // Token validation — skip health and vote (vote uses JWT in Phase 2)
+  if (INTERNAL_TOKEN && url !== `${BASE}/health` && url !== `${BASE}/vote`) {
+    const fromHeader = req.headers["x-internal-token"] as string | undefined;
+    const fromQuery = parsedUrl.searchParams.get("token");
+    if (fromHeader !== INTERNAL_TOKEN && fromQuery !== INTERNAL_TOKEN) {
+      res.writeHead(403, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "Forbidden" }));
+      return;
+    }
+  }
 
   // Health check
   if (url === `${BASE}/health` && req.method === "GET") {
@@ -137,7 +151,10 @@ const server = http.createServer(async (req, res) => {
   res.writeHead(404); res.end("Not found");
 });
 
-server.listen(PORT, () => console.log(`SSE server listening on port ${PORT}`));
+server.listen(PORT, () => {
+  console.log(`SSE server listening on port ${PORT}`);
+  if (!INTERNAL_TOKEN) console.warn("WARNING: INTERNAL_TOKEN not set, all requests allowed");
+});
 
 process.on("SIGTERM", async () => {
   for (const client of clients) client.end();

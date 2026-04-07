@@ -1,5 +1,5 @@
 import { AutoRouter } from 'itty-router';
-import { SSE_SERVER_URL, ORIGIN_URL } from './config.js';
+import { SSE_SERVER_URL, ORIGIN_URL, INTERNAL_TOKEN } from './config.js';
 import voterHTML from '../html/voter.html';
 import adminHTML from '../html/admin.html';
 import displayHTML from '../html/display.html';
@@ -8,6 +8,16 @@ import stylesCSS from '../html/styles.css';
 
 const router = AutoRouter();
 const VALID_OPTIONS = ["A", "B", "C", "D"];
+
+function internalFetch(url, options = {}) {
+  return fetch(url, {
+    ...options,
+    headers: {
+      ...(options.headers || {}),
+      "x-internal-token": INTERNAL_TOKEN,
+    },
+  });
+}
 
 function getToken(req) {
   const ip = req.headers.get("true-client-ip") ??
@@ -37,19 +47,19 @@ function voterUI(base) {
 function adminUI(base) {
   return new Response(
     adminHTML
-      .replace('__BASE__', base)
-      .replace('__ORIGIN_URL__', ORIGIN_URL),
+      .replaceAll('__BASE__', base)
+      .replaceAll('__ORIGIN_URL__', ORIGIN_URL)
+      .replaceAll('__INTERNAL_TOKEN__', INTERNAL_TOKEN),
     { status: 200, headers: { "content-type": "text/html; charset=utf-8" } }
   );
 }
 
-function displayUI() {
-  const sseUrl = SSE_SERVER_URL.replace('/api/vote', '/api/events');
-  const base = '/voterapp'; // or derive from config
+function displayUI(base) {
   return new Response(
     displayHTML
-      .replace('"__SSE_URL__"', JSON.stringify(sseUrl))
-      .replace('__STYLES_URL__', base),
+      .replaceAll('__BASE__', base)
+      .replaceAll('__ORIGIN_URL__', ORIGIN_URL)
+      .replaceAll('__INTERNAL_TOKEN__', INTERNAL_TOKEN),
     { status: 200, headers: { "content-type": "text/html; charset=utf-8" } }
   );
 }
@@ -73,7 +83,9 @@ async function handleVote(req) {
   try {
     const response = await fetch(SSE_SERVER_URL, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json",
+       "x-internal-token": INTERNAL_TOKEN, 
+       },
       body: JSON.stringify({ option: body.option, token }),
     });
     const result = await response.json();
@@ -98,8 +110,39 @@ router.all("*", async (req) => {
 
   if (path.endsWith('/api/vote') && req.method === 'POST') return handleVote(req);
   if (path.endsWith('/api/health')) return new Response('ok', { status: 200, headers: { "content-type": "text/plain" } });
+
+  if (path.endsWith('/api/totals') && req.method === 'GET') {
+    try {
+      const upstream = await internalFetch(ORIGIN_URL + '/api/totals');
+      const data = await upstream.text();
+      return new Response(data, {
+        status: upstream.status,
+        headers: { "content-type": "application/json", "access-control-allow-origin": "*" }
+      });
+    } catch {
+      return new Response(JSON.stringify({ error: "Upstream error" }), {
+        status: 502, headers: { "content-type": "application/json" }
+      });
+    }
+  }
+
+  if (path.endsWith('/api/clear') && req.method === 'POST') {
+    try {
+      const upstream = await internalFetch(ORIGIN_URL + '/api/clear', { method: 'POST' });
+      const data = await upstream.text();
+      return new Response(data, {
+        status: upstream.status,
+        headers: { "content-type": "application/json", "access-control-allow-origin": "*" }
+      });
+    } catch {
+      return new Response(JSON.stringify({ error: "Upstream error" }), {
+        status: 502, headers: { "content-type": "application/json" }
+      });
+    }
+  }
+
   if (path.endsWith('/admin') || path.endsWith('/admin/')) return adminUI(base);
-  if (path.endsWith('/display') || path.endsWith('/display/')) return displayUI();
+  if (path.endsWith('/display') || path.endsWith('/display/')) return displayUI(base);
   if (path.endsWith('/styles.css')) return serveCSS();
   return voterUI(base);
 });

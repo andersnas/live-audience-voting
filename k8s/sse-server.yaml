@@ -31,15 +31,20 @@ spec:
                 secretKeyRef:
                   name: redis-secret
                   key: password
+            - name: INTERNAL_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: internal-token
+                  key: token
           livenessProbe:
             httpGet:
-              path: /health
+              path: /voterapp/api/health
               port: 3000
             initialDelaySeconds: 5
             periodSeconds: 10
           readinessProbe:
             httpGet:
-              path: /health
+              path: /voterapp/api/health
               port: 3000
             initialDelaySeconds: 3
             periodSeconds: 5

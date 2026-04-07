@@ -32,12 +32,12 @@
     <div class="status-msg" id="status"></div>
   </div>
   <script>
-    const ORIGIN='__ORIGIN_URL__';
+    const BASE='__BASE__';const ORIGIN='__ORIGIN_URL__';const TOKEN='__INTERNAL_TOKEN__';
     function updateUI(totals,total){['A','B','C','D'].forEach(o=>{const count=totals[o]||0;const pct=total>0?Math.round(count/total*100):0;document.getElementById('count-'+o).textContent=count;document.getElementById('pct-'+o).textContent=pct+'%';document.getElementById('bar-'+o).style.width=pct+'%';document.getElementById('bar-count-'+o).textContent=count;});document.getElementById('total').textContent=total;}
-    async function fetchTotals(){try{const res=await fetch(ORIGIN+'/api/totals');const data=await res.json();updateUI(data.totals,data.total);setStatus('Updated','ok');}catch{setStatus('Failed','err');}}
-    async function clearVotes(){if(!confirm('Clear all votes?'))return;try{const res=await fetch(ORIGIN+'/api/clear',{method:'POST'});const data=await res.json();updateUI({A:0,B:0,C:0,D:0},0);setStatus('Cleared '+data.cleared+' tokens','ok');}catch{setStatus('Failed','err');}}
+    async function fetchTotals(){try{const res=await fetch(BASE+'/api/totals');const data=await res.json();updateUI(data.totals,data.total);setStatus('Updated','ok');}catch{setStatus('Failed','err');}}
+    async function clearVotes(){if(!confirm('Clear all votes?'))return;try{const res=await fetch(BASE+'/api/clear',{method:'POST'});const data=await res.json();updateUI({A:0,B:0,C:0,D:0},0);setStatus('Cleared '+data.cleared+' tokens','ok');}catch{setStatus('Failed','err');}}
     function setStatus(msg,type){const el=document.getElementById('status');el.textContent=msg;el.className='status-msg '+type;setTimeout(()=>{el.textContent='';el.className='status-msg';},3000);}
-    const es=new EventSource(ORIGIN+'/api/events');
+    const es=new EventSource(ORIGIN+'/api/events?token='+TOKEN);
     es.onmessage = (e) => {
       try {
         const ev = JSON.parse(e.data);
