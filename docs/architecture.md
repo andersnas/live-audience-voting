@@ -212,6 +212,38 @@ kubectl create secret generic linode-credentials \
   --from-literal=token=YOUR_LINODE_API_TOKEN
 ```
 
+## Bootstrapping the first session
+
+Creating a session requires an admin JWT, which requires logging into an existing session.
+The very first session must be bootstrapped via curl directly to the internal API:
+
+```bash
+curl -s -X POST https://{CDN_HOSTNAME}/voterapp/internal/api/session/create \
+  -H 'Content-Type: application/json' \
+  -H 'x-internal-token: YOUR_INTERNAL_TOKEN' \
+  -d '{
+    "name": "My First Session",
+    "accessCode": "my-secret-code",
+    "questions": [
+      {"label": "Question text?", "options": [{"key":"A","label":"Option A"},{"key":"B","label":"Option B"}]}
+    ]
+  }'
+```
+
+After this, log into the admin UI and create additional sessions from the control panel.
+
+## Redis persistence
+
+Redis uses a 1Gi PersistentVolumeClaim (Linode block storage, retain policy).
+Session and question set data persists across pod restarts. Vote dedup keys
+expire naturally (1h TTL).
+
+To reinstall Redis with persistence:
+```bash
+helm uninstall redis
+helm install redis bitnami/redis -f k8s/redis-values.yaml --set auth.password=YOUR_PASSWORD
+```
+
 ## Useful commands
 ```bash
 # Watch pods
