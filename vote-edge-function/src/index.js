@@ -98,11 +98,20 @@ async function proxyJSON(upstreamUrl, options = {}) {
   }
 }
 
-function voterUI(base, setId) {
+async function voterUI(base, setId) {
+  let setName = '';
+  if (setId) {
+    try {
+      const res = await internalFetch(ORIGIN_URL + '/api/question?set=' + encodeURIComponent(setId));
+      const data = await res.json();
+      setName = data.name || '';
+    } catch {}
+  }
   return new Response(
     voterHTML
       .replaceAll('__BASE__', base)
-      .replaceAll('__SET_ID__', setId || ''),
+      .replaceAll('__SET_ID__', setId || '')
+      .replaceAll('__SET_NAME__', setName),
     { status: 200, headers: { "content-type": "text/html; charset=utf-8" } }
   );
 }
@@ -277,8 +286,17 @@ router.all("*", async (req) => {
     });
   }
 
-  // Question (get active)
+  // Question (get active) — requires voter or admin JWT
   if (path.endsWith('/api/question') && !path.includes('/activate') && req.method === 'GET') {
+    const authHeader = req.headers.get('authorization') || '';
+    const jwtToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+    if (!jwtToken) return new Response(JSON.stringify({ error: "Authorization required" }), {
+      status: 401, headers: { "content-type": "application/json", "access-control-allow-origin": "*" }
+    });
+    const payload = await verifyJWT(jwtToken);
+    if (!payload) return new Response(JSON.stringify({ error: "Invalid or expired JWT" }), {
+      status: 401, headers: { "content-type": "application/json", "access-control-allow-origin": "*" }
+    });
     const setId = url.searchParams.get('set');
     const qs = setId ? `?set=${encodeURIComponent(setId)}` : '';
     return proxyJSON(ORIGIN_URL + '/api/question' + qs);

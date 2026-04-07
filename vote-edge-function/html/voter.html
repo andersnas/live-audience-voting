@@ -13,7 +13,7 @@
       <!-- Email registration screen -->
       <div id="email-screen">
         <div class="eyebrow">Live Poll</div>
-        <h1 id="set-name">Enter your email to join</h1>
+        <h1>__SET_NAME__</h1>
         <form onsubmit="register(event)">
           <input type="email" id="email-input" class="email-input" placeholder="you@example.com" required autocomplete="email" />
           <button type="submit" class="join-btn" id="join-btn">Join</button>
@@ -50,21 +50,10 @@
     const SET_ID = '__SET_ID__';
     let jwt = sessionStorage.getItem('jwt_' + SET_ID);
 
-    // Load set name
-    async function loadSetName() {
-      try {
-        const res = await fetch(BASE + '/api/question?set=' + encodeURIComponent(SET_ID));
-        const data = await res.json();
-        if (data.name) document.getElementById('set-name').textContent = data.name;
-      } catch {}
-    }
-
     // If already registered, go straight to vote/waiting
     if (jwt) {
       showScreen('waiting-screen');
       fetchQuestion();
-    } else {
-      loadSetName();
     }
 
     async function register(e) {
@@ -99,7 +88,9 @@
 
     async function fetchQuestion() {
       try {
-        const res = await fetch(BASE + '/api/question?set=' + encodeURIComponent(SET_ID));
+        const res = await fetch(BASE + '/api/question?set=' + encodeURIComponent(SET_ID), {
+          headers: { 'Authorization': 'Bearer ' + jwt }
+        });
         const data = await res.json();
         if (data.question) {
           renderQuestion(data.question);
