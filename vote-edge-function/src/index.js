@@ -152,6 +152,26 @@ router.all("*", async (req) => {
     });
   }
 
+  // Session update
+  if (path.endsWith('/api/session/update') && req.method === 'POST') {
+    const body = await req.text();
+    return proxyJSON(ORIGIN_URL + '/api/session/update', {
+      method: 'POST',
+      headers: { "content-type": "application/json" },
+      body,
+    });
+  }
+
+  // Session delete
+  if (path.endsWith('/api/session/delete') && req.method === 'POST') {
+    const body = await req.text();
+    return proxyJSON(ORIGIN_URL + '/api/session/delete', {
+      method: 'POST',
+      headers: { "content-type": "application/json" },
+      body,
+    });
+  }
+
   // Question (get active)
   if (path.endsWith('/api/question') && !path.includes('/activate') && req.method === 'GET') {
     const setId = url.searchParams.get('set');

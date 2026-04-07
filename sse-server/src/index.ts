@@ -167,6 +167,79 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // --- Session/update ---
+  if (url === `${BASE}/session/update` && req.method === "POST") {
+    try {
+      const body = JSON.parse(await readBody(req));
+      const { setId, name, accessCode, questions } = body;
+      if (!setId) return json(res, 400, { error: "setId is required" });
+
+      const existing = await getSet(setId);
+      if (!existing) return json(res, 404, { error: "Set not found" });
+
+      if (name && typeof name === "string") existing.name = name;
+      if (accessCode && typeof accessCode === "string") {
+        existing.accessCodeHash = crypto.createHash("sha256").update(accessCode).digest("hex");
+      }
+      if (Array.isArray(questions) && questions.length > 0) {
+        existing.questions = questions.map((q: any, i: number) => {
+          if (!q.label || !Array.isArray(q.options) || q.options.length < 2) {
+            throw new Error(`Invalid question at index ${i}`);
+          }
+          return {
+            id: q.id || `q${i}`,
+            label: q.label,
+            options: q.options.map((o: any) => ({ key: o.key, label: o.label })),
+          };
+        });
+      }
+
+      await publisher.set(`set:${setId}`, JSON.stringify(existing));
+      console.log(`Session updated: ${setId}`);
+      json(res, 200, { ok: true, name: existing.name, questions: existing.questions });
+    } catch (err: any) {
+      console.error("Session update error:", err);
+      json(res, 400, { error: err.message || "Invalid request" });
+    }
+    return;
+  }
+
+  // --- Session/delete ---
+  if (url === `${BASE}/session/delete` && req.method === "POST") {
+    try {
+      const body = JSON.parse(await readBody(req));
+      const { setId } = body;
+      if (!setId) return json(res, 400, { error: "setId is required" });
+
+      const existing = await getSet(setId);
+      if (!existing) return json(res, 404, { error: "Set not found" });
+
+      // Delete all related keys
+      const keysToDelete = [`set:${setId}`, `set:${setId}:active`, `set:${setId}:voters`];
+      for (const q of existing.questions) {
+        keysToDelete.push(`set:${setId}:${q.id}:votes`);
+      }
+      const voterKeys = await publisher.keys(`voter:${setId}:*`);
+      keysToDelete.push(...voterKeys);
+
+      if (keysToDelete.length > 0) await publisher.del(...keysToDelete);
+
+      // Disconnect SSE clients for this set
+      const setClients = clients.get(setId);
+      if (setClients) {
+        for (const client of setClients) client.end();
+        clients.delete(setId);
+      }
+
+      console.log(`Session deleted: ${setId} (${keysToDelete.length} keys removed)`);
+      json(res, 200, { ok: true, deleted: keysToDelete.length });
+    } catch (err: any) {
+      console.error("Session delete error:", err);
+      json(res, 500, { error: "Failed to delete" });
+    }
+    return;
+  }
+
   // --- Question (get active) ---
   if (url === `${BASE}/question` && req.method === "GET") {
     const setId = parsedUrl.searchParams.get("set");
