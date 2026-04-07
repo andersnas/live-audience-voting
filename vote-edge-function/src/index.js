@@ -156,7 +156,7 @@ function displayUI(base, setId) {
 function serveCSS() {
   return new Response(stylesCSS, {
     status: 200,
-    headers: { "content-type": "text/css; charset=utf-8" }
+    headers: { "content-type": "text/css; charset=utf-8", "cache-control": "no-cache" }
   });
 }
 
@@ -359,7 +359,8 @@ router.all("*", async (req) => {
       status: 401, headers: { "content-type": "application/json", "access-control-allow-origin": "*" }
     });
     const setId = url.searchParams.get('set');
-    const qs = setId ? `?set=${encodeURIComponent(setId)}` : '';
+    let qs = setId ? `?set=${encodeURIComponent(setId)}` : '';
+    if (payload.role === 'admin') qs += (qs ? '&' : '?') + 'include=all';
     return proxyJSON(ORIGIN_URL + '/api/question' + qs);
   }
 
