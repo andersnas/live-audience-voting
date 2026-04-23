@@ -3,6 +3,11 @@ k8s/cluster-issuer.yaml
 k8s/redis-secret.yaml
 k8s/sse-server.yaml
 
+# Python / Locust
+.venv/
+__pycache__/
+*.pyc
+
 # Logs
 logs
 *.log

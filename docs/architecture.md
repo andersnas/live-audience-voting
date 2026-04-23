@@ -262,6 +262,23 @@ kubectl exec -it redis-master-0 -- redis-cli -a YOUR_PASSWORD KEYS "set:*"
 kubectl rollout restart deployment sse-server
 ```
 
+## Load testing
+
+A Locust test simulating human-like voter behavior is included in `loadtest/`.
+Simulated voters register with unique emails, poll `/api/question` every 3s
+(matching the real voter UI), and vote with realistic thinking delays (3-10s).
+
+```bash
+cd loadtest
+python3 -m venv .venv && .venv/bin/pip install locust
+SET_ID=<your-set-id> .venv/bin/locust -f locustfile.py \
+  --host https://{CDN_HOSTNAME}
+# Open http://localhost:8089 to start the test
+```
+
+See `loadtest/README.md` for test scenarios (ramp up, spike, sustained, stress)
+and monitoring tips.
+
 ## Project structure
 ```
 live-audience-voting/
@@ -284,6 +301,9 @@ live-audience-voting/
 │   ├── sse-ingress.yaml         # nginx ingress + TLS
 │   ├── cluster-issuer.yaml      # cert-manager
 │   └── redis-values.yaml        # Bitnami Helm overrides
+├── loadtest/
+│   ├── locustfile.py            # Locust load test
+│   └── README.md                # How to run, scenarios
 └── docs/
     └── architecture.md          # This file
 ```
