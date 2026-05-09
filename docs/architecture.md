@@ -87,9 +87,9 @@ The edge function handles all JWT logic (sign + verify). The SSE server never se
 
 | Path pattern | Routes to | Notes |
 |---|---|---|
-| `/voterapp/internal/*` | LKE origin (web{CDN_HOSTNAME}) | CDN rewrites path, strips `/internal/` |
+| `/voterapp/internal/*` | LKE origin ({ORIGIN_HOSTNAME}) | CDN rewrites path, strips `/internal/` |
 | `/voterapp/api/events` | LKE origin directly | Dedicated SSE streaming rule |
-| `/voterapp/*` | Fermyon function ({FUNCTION_DOMAIN}) | Edge function serves HTML + proxies API |
+| `/voterapp/*` | Fermyon function | Edge function serves HTML + proxies API |
 
 IPACL: LKE cluster only accepts traffic from Akamai edge IPs.
 

@@ -11,10 +11,10 @@ spec:
   ingressClassName: nginx
   tls:
     - hosts:
-        - web{CDN_HOSTNAME}
+        - {ORIGIN_HOSTNAME}
       secretName: webservices-tls
   rules:
-    - host: web{CDN_HOSTNAME}
+    - host: {ORIGIN_HOSTNAME}
       http:
         paths:
           - path: /
