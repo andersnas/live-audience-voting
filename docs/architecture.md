@@ -232,6 +232,31 @@ curl -s -X POST https://{CDN_HOSTNAME}/voterapp/internal/api/session/create \
 
 After this, log into the admin UI and create additional sessions from the control panel.
 
+## Resetting a session access code
+
+Access codes are hashed with SHA-256 before storage — the plain code is not recoverable.
+If forgotten, set a new one via curl with the internal token:
+
+```bash
+curl -s -X POST https://{CDN_HOSTNAME}/voterapp/internal/api/session/update \
+  -H 'Content-Type: application/json' \
+  -H 'x-internal-token: YOUR_INTERNAL_TOKEN' \
+  -d '{"setId": "SET_ID", "accessCode": "new-access-code"}'
+```
+
+The same endpoint can rename a session:
+
+```bash
+curl -s -X POST https://{CDN_HOSTNAME}/voterapp/internal/api/session/update \
+  -H 'Content-Type: application/json' \
+  -H 'x-internal-token: YOUR_INTERNAL_TOKEN' \
+  -d '{"setId": "SET_ID", "name": "New Session Name"}'
+```
+
+Or update both in one call by including both `name` and `accessCode`. Access codes are
+plain text strings (any format) — the server hashes them. The `INTERNAL_TOKEN` is in
+`vote-edge-function/src/config.js` (gitignored).
+
 ## Redis persistence
 
 Redis uses a 1Gi PersistentVolumeClaim (Linode block storage, retain policy).
